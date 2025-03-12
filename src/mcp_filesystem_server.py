@@ -2,6 +2,7 @@ import os
 import json
 import shutil
 import glob
+import subprocess
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -55,6 +56,21 @@ class SearchRequest(BaseModel):
 
 class SearchResponse(BaseModel):
     matches: List[str] = Field(..., description="List of matching file paths")
+
+
+class GrepSearchRequest(BaseModel):
+    path: str = Field(..., description="Base path to search in")
+    pattern: str = Field(..., description="Grep pattern to search for")
+    recursive: bool = Field(True, description="Whether to search recursively")
+    case_sensitive: bool = Field(False, description="Whether to use case-sensitive matching")
+
+
+class GrepSearchResponse(BaseModel):
+    matches: List[Dict[str, str]] = Field(..., description="List of matching files with line content")
+
+
+class PwdResponse(BaseModel):
+    current_dir: str = Field(..., description="Current working directory")
 
 
 # Initialize FastAPI app
@@ -167,6 +183,63 @@ async def search_files(request: SearchRequest):
 @app.get("/list_allowed_directories")
 async def list_allowed_directories():
     return {"allowed_directories": ALLOWED_DIRECTORIES}
+
+
+@app.get("/pwd", response_model=PwdResponse)
+async def get_current_directory():
+    """Get the current working directory"""
+    try:
+        current_dir = os.getcwd()
+        return {"current_dir": current_dir}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting current directory: {str(e)}")
+
+
+@app.post("/grep_search", response_model=GrepSearchResponse)
+async def grep_search(request: GrepSearchRequest):
+    """Search files using grep for content matching"""
+    if not validate_path(request.path):
+        raise HTTPException(
+            status_code=403, detail="Access to this path is not allowed"
+        )
+
+    try:
+        # Build grep command
+        grep_cmd = ["grep"]
+        
+        # Add options
+        if request.recursive:
+            grep_cmd.append("-r")
+        if not request.case_sensitive:
+            grep_cmd.append("-i")
+            
+        # Add pattern matching and some context
+        grep_cmd.extend(["-n", "--color=never", request.pattern, request.path])
+        
+        # Execute the grep command
+        result = subprocess.run(
+            grep_cmd, 
+            capture_output=True, 
+            text=True, 
+            check=False  # Don't raise exception on non-zero exit (no matches)
+        )
+        
+        # Process results
+        matches = []
+        if result.stdout:
+            for line in result.stdout.splitlines():
+                # Parse the grep output (filename:line_number:content)
+                parts = line.split(':', 2)
+                if len(parts) >= 3:
+                    matches.append({
+                        "file": parts[0],
+                        "line": parts[1],
+                        "content": parts[2]
+                    })
+        
+        return {"matches": matches}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error searching with grep: {str(e)}")
 
 
 # Main entry point

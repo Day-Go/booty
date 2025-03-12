@@ -36,6 +36,8 @@ The following endpoints are available:
 | `/list_directory` | POST | List contents of a directory |
 | `/create_directory` | POST | Create a directory |
 | `/search_files` | POST | Search files with glob pattern |
+| `/grep_search` | POST | Search file contents using grep |
+| `/pwd` | GET | Get current working directory |
 | `/list_allowed_directories` | GET | Get list of allowed paths |
 
 ## Using the Clients
@@ -91,12 +93,22 @@ list directory /home/dago/dev/projects/llm
 read file /home/dago/dev/projects/llm/CLAUDE.md
 ```
 
-3. Search for files:
+3. Search for files (using glob pattern):
 ```
 search for "*.py" in /home/dago/dev/projects/llm/src
 ```
 
-4. Write to a file:
+4. Search file contents (using grep):
+```
+grep for "import" in /home/dago/dev/projects/llm/src
+```
+
+5. Get current working directory:
+```
+pwd
+```
+
+6. Write to a file:
 ```
 write to file /home/dago/dev/projects/llm/test_output.txt with content
 ```
@@ -113,7 +125,24 @@ read file /home/dago/dev/projects/llm/src/ollama_inference.py and summarize its 
 search for "*.py" in /home/dago/dev/projects/llm and list the main imports used in each file
 ```
 
-3. Create project structure:
+3. Search for specific code patterns:
+```
+grep for "def __init__" in /home/dago/dev/projects/llm/src and analyze the initialization patterns
+```
+
+4. Get current directory and create a file:
+```
+pwd
+write to file /home/dago/dev/projects/llm/current_dir_log.txt with content
+```
+
+5. Compare glob search vs grep search:
+```
+search for "*.py" in /home/dago/dev/projects/llm/src
+grep for "import requests" in /home/dago/dev/projects/llm/src
+```
+
+6. Create project structure:
 ```
 list directory /home/dago/dev/projects/llm and suggest improvements to the project structure
 ```
