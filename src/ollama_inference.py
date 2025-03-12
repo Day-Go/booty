@@ -227,6 +227,7 @@ class MCPFilesystemClient:
 
 class StreamingXMLParser:
     """Streaming parser for XML-based MCP commands"""
+
     def __init__(self):
         # Parser state
         self.in_mcp_block = False
@@ -238,13 +239,13 @@ class StreamingXMLParser:
     def feed(self, token: str) -> bool:
         """
         Process a new token and update parser state.
-        
+
         Returns True if a complete MCP command is detected.
         """
         # Track if we're inside thinking blocks
         if "<think>" in self.buffer + token and not self.in_think_block:
             self.in_think_block = True
-            
+
         if "</think>" in self.buffer + token and self.in_think_block:
             self.in_think_block = False
             # Clear buffer after exiting think block since we don't want to process commands in thinking
@@ -255,10 +256,10 @@ class StreamingXMLParser:
         if self.in_think_block:
             self.buffer += token
             return False
-            
+
         # Add token to buffer
         self.buffer += token
-        
+
         # Detect opening of MCP block
         if "<mcp:filesystem>" in self.buffer and not self.in_mcp_block:
             self.in_mcp_block = True
@@ -267,7 +268,7 @@ class StreamingXMLParser:
             # Remove everything before the opening tag
             start_idx = self.buffer.find("<mcp:filesystem>") + len("<mcp:filesystem>")
             self.buffer = self.buffer[start_idx:]
-            
+
         # Process content inside MCP block
         if self.in_mcp_block:
             # Track XML tag openings
@@ -275,13 +276,13 @@ class StreamingXMLParser:
                 tag = match.group(1)
                 if not match.group(0).endswith("/>"):  # Not a self-closing tag
                     self.xml_stack.append(tag)
-                    
+
             # Track XML tag closings
             for match in re.finditer(r"</(\w+)>", self.buffer):
                 tag = match.group(1)
                 if self.xml_stack and self.xml_stack[-1] == tag:
                     self.xml_stack.pop()
-                    
+
                     # Check if we've closed the MCP block
                     if not self.xml_stack and tag == "mcp:filesystem":
                         # We have a complete command
@@ -290,13 +291,13 @@ class StreamingXMLParser:
                         self.buffer = self.buffer[end_idx:]
                         self.in_mcp_block = False
                         return True
-                        
+
             # Update the complete command with the buffer and clear the buffer
             # only if we're still in an MCP block
             if self.in_mcp_block:
                 self.complete_command += self.buffer
                 self.buffer = ""
-                
+
         return False
 
     def get_command(self) -> str:
@@ -304,7 +305,7 @@ class StreamingXMLParser:
         command = self.complete_command
         self.complete_command = ""
         return command
-        
+
     def reset(self):
         """Reset parser state"""
         self.in_mcp_block = False
@@ -348,77 +349,111 @@ class OllamaAgent:
         print(f"{Colors.MAGENTA}{cleaned_message}{Colors.ENDC}")
 
         commands = []
-        
+
         # Use XML parsing for command extraction
         # Look for <mcp:filesystem> tags in the message
         try:
             # Find all <mcp:filesystem> blocks in the message
-            mcp_blocks = re.findall(r'<mcp:filesystem>(.*?)</mcp:filesystem>', cleaned_message, re.DOTALL)
-            
-            print(f"{Colors.MAGENTA}Found {len(mcp_blocks)} MCP filesystem blocks{Colors.ENDC}")
-            
+            mcp_blocks = re.findall(
+                r"<mcp:filesystem>(.*?)</mcp:filesystem>", cleaned_message, re.DOTALL
+            )
+
+            print(
+                f"{Colors.MAGENTA}Found {len(mcp_blocks)} MCP filesystem blocks{Colors.ENDC}"
+            )
+
             # Process each MCP block using XML parsing
             for block_idx, block in enumerate(mcp_blocks):
-                print(f"{Colors.MAGENTA}Processing MCP block #{block_idx + 1}:{Colors.ENDC}")
+                print(
+                    f"{Colors.MAGENTA}Processing MCP block #{block_idx + 1}:{Colors.ENDC}"
+                )
                 print(f"{Colors.MAGENTA}{block}{Colors.ENDC}")
-                
+
                 # Wrap the block in a root element for proper XML parsing
                 xml_content = f"<root>{block}</root>"
-                
+
                 # Use a more permissive approach for handling potentially malformed XML
                 try:
                     root = ET.fromstring(xml_content)
-                    
+
                     # Process each command element in the block
                     for cmd_element in root:
                         cmd_type = cmd_element.tag.lower()
-                        print(f"{Colors.MAGENTA}Processing command type: {cmd_type}{Colors.ENDC}")
-                        
+                        print(
+                            f"{Colors.MAGENTA}Processing command type: {cmd_type}{Colors.ENDC}"
+                        )
+
                         # Convert XML elements to command dictionaries
                         if cmd_type == "read":
                             path = cmd_element.get("path", "")
                             if path:
-                                print(f"{Colors.MAGENTA}Read command with path: {path}{Colors.ENDC}")
+                                print(
+                                    f"{Colors.MAGENTA}Read command with path: {path}{Colors.ENDC}"
+                                )
                                 commands.append({"action": "read", "path": path})
-                        
+
                         elif cmd_type == "write":
                             path = cmd_element.get("path", "")
                             content = cmd_element.text if cmd_element.text else ""
                             if path:
-                                print(f"{Colors.MAGENTA}Write command with path: {path}{Colors.ENDC}")
-                                commands.append({"action": "write", "path": path, "content": content})
-                        
+                                print(
+                                    f"{Colors.MAGENTA}Write command with path: {path}{Colors.ENDC}"
+                                )
+                                commands.append(
+                                    {
+                                        "action": "write",
+                                        "path": path,
+                                        "content": content,
+                                    }
+                                )
+
                         elif cmd_type == "list":
                             path = cmd_element.get("path", "")
                             if path:
-                                print(f"{Colors.MAGENTA}List command with path: {path}{Colors.ENDC}")
+                                print(
+                                    f"{Colors.MAGENTA}List command with path: {path}{Colors.ENDC}"
+                                )
                                 commands.append({"action": "list", "path": path})
-                        
+
                         elif cmd_type == "search":
                             path = cmd_element.get("path", "")
                             pattern = cmd_element.get("pattern", "")
                             if path and pattern:
-                                print(f"{Colors.MAGENTA}Search command with path: {path}, pattern: {pattern}{Colors.ENDC}")
-                                commands.append({"action": "search", "path": path, "pattern": pattern})
-                        
+                                print(
+                                    f"{Colors.MAGENTA}Search command with path: {path}, pattern: {pattern}{Colors.ENDC}"
+                                )
+                                commands.append(
+                                    {
+                                        "action": "search",
+                                        "path": path,
+                                        "pattern": pattern,
+                                    }
+                                )
+
                         elif cmd_type == "pwd":
                             print(f"{Colors.MAGENTA}PWD command{Colors.ENDC}")
                             commands.append({"action": "pwd"})
-                        
+
                         elif cmd_type == "grep":
                             path = cmd_element.get("path", "")
                             pattern = cmd_element.get("pattern", "")
                             if path and pattern:
-                                print(f"{Colors.MAGENTA}Grep command with path: {path}, pattern: {pattern}{Colors.ENDC}")
-                                commands.append({"action": "grep", "path": path, "pattern": pattern})
-                                
+                                print(
+                                    f"{Colors.MAGENTA}Grep command with path: {path}, pattern: {pattern}{Colors.ENDC}"
+                                )
+                                commands.append(
+                                    {"action": "grep", "path": path, "pattern": pattern}
+                                )
+
                 except Exception as xml_error:
-                    print(f"{Colors.RED}Error parsing XML: {str(xml_error)}{Colors.ENDC}")
+                    print(
+                        f"{Colors.RED}Error parsing XML: {str(xml_error)}{Colors.ENDC}"
+                    )
                     # Fall back to regex-based extraction for this block if XML parsing fails
-                    
+
         except Exception as e:
             print(f"{Colors.RED}Error extracting MCP commands: {str(e)}{Colors.ENDC}")
-            
+
         # Fallback for direct file references outside XML structure
         # Only if no commands were found using XML parsing
         if not commands:
@@ -498,7 +533,9 @@ class OllamaAgent:
 
                 elif action == "write":
                     # Extract content from command if available
-                    content = cmd.get("content", "This is test content written by Ollama")
+                    content = cmd.get(
+                        "content", "This is test content written by Ollama"
+                    )
                     result = self.fs_client.write_file(path, content)
                     results.append(
                         {
@@ -536,7 +573,7 @@ class OllamaAgent:
                 )
 
         return results
-        
+
     def _format_command_results(self, results: List[Dict[str, Any]]) -> str:
         """Format command execution results for inclusion in the model context"""
         result_output = ""
@@ -599,20 +636,22 @@ class OllamaAgent:
                     )
                     result_output += f"\n--- Grep results for '{pattern}' in {path} ---\n{matches_text}\n---\n"
                 else:
-                    result_output += f"\n--- No grep matches for '{pattern}' in {path} ---\n---\n"
-                    
+                    result_output += (
+                        f"\n--- No grep matches for '{pattern}' in {path} ---\n---\n"
+                    )
+
         return result_output
 
     def _generate_raw_response(self, prompt, system_prompt=None, stream=True) -> str:
         """Generate a raw response from Ollama API with streaming command detection
-        
+
         This method now:
         1. Streams tokens from the LLM
         2. Monitors for complete MCP filesystem XML commands
         3. Interrupts generation when a command is detected
         4. Executes the command and injects the result
         5. Continues generation with the new context
-        
+
         If stream=True, it will stream the response to the console in real-time
         and handle MCP commands on-the-fly.
         """
@@ -624,7 +663,11 @@ class OllamaAgent:
         endpoint = f"{self.api_base}/api/generate"
 
         # Build the request payload
-        payload = {"model": self.model, "prompt": prompt, "stream": True}  # Always stream for command detection
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": True,
+        }  # Always stream for command detection
 
         # Add system prompt if provided
         if system_prompt:
@@ -635,104 +678,120 @@ class OllamaAgent:
 
         # Initialize the streaming parser
         xml_parser = StreamingXMLParser()
-        
+
         # Initialize response tracking
         full_response = ""
         should_continue = True
         has_completed = False
-        
+
         # Track if we need to continue generation after command execution
         need_continuation = False
-        
+
         while should_continue:
             # Make the API request
-            print(f"{Colors.YELLOW}Streaming response with command detection...{Colors.ENDC}")
+            print(
+                f"{Colors.YELLOW}Streaming response with command detection...{Colors.ENDC}"
+            )
             response = requests.post(endpoint, json=payload, stream=True)
             response.raise_for_status()
-            
+
             if not need_continuation:
                 print("Response: ", end="", flush=True)
-            
+
             # Process the streaming response token by token
             for line in response.iter_lines():
                 if not line:
                     continue
-                    
+
                 json_response = json.loads(line)
                 response_part = json_response.get("response", "")
-                
+
                 # Print token to user if we're not in continuation mode
                 if stream:
                     print(response_part, end="", flush=True)
-                
+
                 # Check if the model is done generating
                 if json_response.get("done", False):
                     has_completed = True
                     if stream:
                         print()  # Add newline
                     break
-                
+
                 # Add token to response
                 full_response += response_part
-                
+
                 # Process token with XML parser
                 if xml_parser.feed(response_part):
                     # Complete MCP command detected - interrupt generation
-                    print(f"\n{Colors.BG_MAGENTA}{Colors.BOLD}MCP COMMAND DETECTED - INTERRUPTING GENERATION{Colors.ENDC}")
-                    
+                    print(
+                        f"\n{Colors.BG_MAGENTA}{Colors.BOLD}MCP COMMAND DETECTED - INTERRUPTING GENERATION{Colors.ENDC}"
+                    )
+
                     # Get the complete command
                     mcp_command = xml_parser.get_command()
-                    print(f"{Colors.MAGENTA}Complete command: {mcp_command}{Colors.ENDC}")
-                    
+                    print(
+                        f"{Colors.MAGENTA}Complete command: {mcp_command}{Colors.ENDC}"
+                    )
+
                     # Extract file commands from the XML
                     commands = self._extract_file_commands(mcp_command)
-                    
+
                     if commands:
                         # Execute the commands
-                        print(f"{Colors.BG_BLUE}{Colors.BOLD}EXECUTING MCP COMMANDS{Colors.ENDC}")
+                        print(
+                            f"{Colors.BG_BLUE}{Colors.BOLD}EXECUTING MCP COMMANDS{Colors.ENDC}"
+                        )
                         results = self._execute_file_commands(commands)
-                        
+
                         # Format the results for display
                         result_output = self._format_command_results(results)
-                        
+
                         # Add results to full response
                         full_response += "\n" + result_output
-                        
+
                         if stream:
                             print(f"\n{result_output}")
-                        
+
                         # Set up for continuation
                         need_continuation = True
-                        
+
                         # Update the prompt with results for continuation
                         prompt = f"{prompt}\n\nAI: {full_response}\n\n[System Message]\nNow that you have the requested information, please continue your response incorporating this information."
-                        payload = {"model": self.model, "prompt": prompt, "stream": True}
+                        payload = {
+                            "model": self.model,
+                            "prompt": prompt,
+                            "stream": True,
+                        }
                         if system_prompt:
                             payload["system"] = system_prompt
-                            
+
                         # Reset the XML parser for the continuation
                         xml_parser.reset()
-                        
+
                         # Break out of the token loop to start a new request
                         break
-            
+
             # If the model finished generating and we don't need continuation, we're done
             if has_completed and not need_continuation:
                 should_continue = False
-            
+
             # If we need to continue after a command, we'll make another request
             if need_continuation:
                 # Reset for next cycle
                 need_continuation = False
-                print(f"\n{Colors.BG_BLUE}{Colors.BOLD}CONTINUING GENERATION WITH COMMAND RESULTS{Colors.ENDC}\n")
-        
+                print(
+                    f"\n{Colors.BG_BLUE}{Colors.BOLD}CONTINUING GENERATION WITH COMMAND RESULTS{Colors.ENDC}\n"
+                )
+
         # Final response
-        print(f"{Colors.YELLOW}Response complete ({len(full_response)} characters){Colors.ENDC}")
+        print(
+            f"{Colors.YELLOW}Response complete ({len(full_response)} characters){Colors.ENDC}"
+        )
         return full_response
 
     def generate(self, prompt, system_prompt=None, stream=True):
         """Generate a response using Ollama API with real-time command detection
-        
+
         This is the core method that:
         1. Gets a raw response from the LLM, watching for MCP commands in real-time
         2. When a command is detected, interrupts the generation to execute it
@@ -748,7 +807,7 @@ class OllamaAgent:
 
         # Get response with interactive command detection and execution
         response = self._generate_raw_response(prompt, system_prompt, stream)
-        
+
         return response
 
     def _estimate_tokens(self, text: str) -> int:
@@ -861,7 +920,7 @@ class OllamaAgent:
         2. Formats the entire conversation history for the LLM
         3. Generates a response with real-time MCP command detection and execution
         4. Returns a full response with all command results embedded
-        
+
         Special commands:
         - /status: Show current context status
         - /prune [n]: Prune history to last n exchanges (default: 5)
@@ -987,7 +1046,7 @@ class OllamaAgent:
             print(
                 f"{Colors.CYAN}Cleaned response for history ({len(cleaned_response)} chars){Colors.ENDC}"
             )
-        
+
         # Append assistant response to history (cleaned version without file operations)
         self.conversation_history.append(
             {"role": "assistant", "content": cleaned_response}
@@ -1101,27 +1160,23 @@ EXAMPLE OF CORRECT USAGE:
     print(
         "\nIMPORTANT: File commands are now detected and executed in real-time using XML syntax."
     )
-    print(
-        "The AI uses these formats within <mcp:filesystem> tags:"
-    )
-    print("  <read path=\"/path/to/file\" />")
-    print("  <list path=\"/path/to/dir\" />")
-    print("  <search path=\"/path/to/dir\" pattern=\"search pattern\" />")
-    print("  <write path=\"/path/to/file\">Content goes here</write>")
+    print("The AI uses these formats within <mcp:filesystem> tags:")
+    print('  <read path="/path/to/file" />')
+    print('  <list path="/path/to/dir" />')
+    print('  <search path="/path/to/dir" pattern="search pattern" />')
+    print('  <write path="/path/to/file">Content goes here</write>')
     print("  <pwd />")
-    print("  <grep path=\"/path/to/dir\" pattern=\"grep pattern\" />")
-    
+    print('  <grep path="/path/to/dir" pattern="grep pattern" />')
+
     print("\nIMPORTANT WORKFLOW:")
     print("1. When the AI uses a command, generation is immediately interrupted")
     print("2. The system executes the command and shows REAL results")
     print("3. The AI then continues its response incorporating the results")
     print("4. This prevents hallucination as the AI only works with real data")
     print("5. The AI can use multiple commands throughout its response")
-    
+
     print("\nNEW FEATURES:")
-    print(
-        "1. Real-time XML command detection and execution"
-    )
+    print("1. Real-time XML command detection and execution")
     print("2. Streaming token analysis for immediate command processing")
     print("3. Seamless interruption and continuation of model generation")
     print("4. Better handling of complex multi-line content")
@@ -1148,3 +1203,4 @@ EXAMPLE OF CORRECT USAGE:
 
         # No need to pass system_prompt each time - it's stored in the agent
         response = coding_agent.chat(user_input, stream=True)
+
