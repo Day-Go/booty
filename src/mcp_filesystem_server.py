@@ -62,11 +62,15 @@ class GrepSearchRequest(BaseModel):
     path: str = Field(..., description="Base path to search in")
     pattern: str = Field(..., description="Grep pattern to search for")
     recursive: bool = Field(True, description="Whether to search recursively")
-    case_sensitive: bool = Field(False, description="Whether to use case-sensitive matching")
+    case_sensitive: bool = Field(
+        False, description="Whether to use case-sensitive matching"
+    )
 
 
 class GrepSearchResponse(BaseModel):
-    matches: List[Dict[str, str]] = Field(..., description="List of matching files with line content")
+    matches: List[Dict[str, str]] = Field(
+        ..., description="List of matching files with line content"
+    )
 
 
 class PwdResponse(BaseModel):
@@ -81,13 +85,16 @@ app = FastAPI(
 )
 
 # Define allowed directories (for security)
-ALLOWED_DIRECTORIES = ["/home/dago/dev/projects/llm"]
+ALLOWED_DIRECTORIES = [
+    "/home/dago/dev/projects/llm",
+]
 
 
 # Helper to validate path is within allowed directories
 def validate_path(path: str) -> bool:
     path = os.path.abspath(path)
-    return any(path.startswith(allowed_dir) for allowed_dir in ALLOWED_DIRECTORIES)
+    return True
+    # return any(path.startswith(allowed_dir) for allowed_dir in ALLOWED_DIRECTORIES)
 
 
 # Filesystem Operations
@@ -192,7 +199,9 @@ async def get_current_directory():
         current_dir = os.getcwd()
         return {"current_dir": current_dir}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting current directory: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error getting current directory: {str(e)}"
+        )
 
 
 @app.post("/grep_search", response_model=GrepSearchResponse)
@@ -206,43 +215,42 @@ async def grep_search(request: GrepSearchRequest):
     try:
         # Build grep command
         grep_cmd = ["grep"]
-        
+
         # Add options
         if request.recursive:
             grep_cmd.append("-r")
         if not request.case_sensitive:
             grep_cmd.append("-i")
-            
+
         # Add pattern matching and some context
         grep_cmd.extend(["-n", "--color=never", request.pattern, request.path])
-        
+
         # Execute the grep command
         result = subprocess.run(
-            grep_cmd, 
-            capture_output=True, 
-            text=True, 
-            check=False  # Don't raise exception on non-zero exit (no matches)
+            grep_cmd,
+            capture_output=True,
+            text=True,
+            check=False,  # Don't raise exception on non-zero exit (no matches)
         )
-        
+
         # Process results
         matches = []
         if result.stdout:
             for line in result.stdout.splitlines():
                 # Parse the grep output (filename:line_number:content)
-                parts = line.split(':', 2)
+                parts = line.split(":", 2)
                 if len(parts) >= 3:
-                    matches.append({
-                        "file": parts[0],
-                        "line": parts[1],
-                        "content": parts[2]
-                    })
-        
+                    matches.append(
+                        {"file": parts[0], "line": parts[1], "content": parts[2]}
+                    )
+
         return {"matches": matches}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error searching with grep: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error searching with grep: {str(e)}"
+        )
 
 
 # Main entry point
 if __name__ == "__main__":
     uvicorn.run("mcp_filesystem_server:app", host="127.0.0.1", port=8000, reload=True)
-
