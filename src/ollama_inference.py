@@ -3,6 +3,7 @@ import json
 import os
 import re
 import time
+import xml.etree.ElementTree as ET
 from typing import Dict, List, Any, Optional, Union, Tuple
 
 
@@ -249,12 +250,7 @@ class OllamaAgent:
         )
 
     def _extract_file_commands(self, message: str) -> List[Dict[str, Any]]:
-        """Extract file operation commands from a message"""
-        # print(
-        #    f"\n{Colors.BG_MAGENTA}{Colors.BOLD}DEBUG: Analyzing message for file commands:{Colors.ENDC}"
-        # )
-        # print(f"{Colors.MAGENTA}Message: {message}{Colors.ENDC}")
-
+        """Extract file operation commands from a message using XML format"""
         # Remove thinking blocks to avoid processing commands in thinking
         cleaned_message = re.sub(r"<think>.*?</think>", "", message, flags=re.DOTALL)
         print(
@@ -263,129 +259,80 @@ class OllamaAgent:
         print(f"{Colors.MAGENTA}{cleaned_message}{Colors.ENDC}")
 
         commands = []
-
-        # Strict patterns for MCP file operations - each pattern must match exactly the command format
-        # Using ^ and \b (word boundaries) to ensure we only match commands at the beginning of a line
-        # and not partial matches within other text
-        read_patterns = [
-            r"(?:^|\n)\s*read\s+file\s+(/[^\s\n]+)",  # strict: read file /path/to/file
-        ]
-
-        write_patterns = [
-            r"(?:^|\n)\s*write\s+to\s+file\s+(/[^\s\n]+)\s+with\s+content",  # strict: write to file /path/to/file with content
-        ]
-
-        list_patterns = [
-            r"(?:^|\n)\s*list\s+directory\s+(/[^\s\n]+)",  # strict: list directory /path/to/dir
-        ]
-
-        search_patterns = [
-            r"(?:^|\n)\s*search\s+for\s+\"([^\"]+)\"\s+in\s+(/[^\s\n]+)",  # strict: search for "pattern" in /path/to/dir
-        ]
-
-        pwd_patterns = [
-            r"(?:^|\n)\s*pwd",  # strict: pwd
-        ]
-
-        grep_patterns = [
-            r"(?:^|\n)\s*grep\s+for\s+\"([^\"]+)\"\s+in\s+(/[^\s\n]+)",  # strict: grep for "pattern" in /path/to/dir
-        ]
-
-        print(f"{Colors.MAGENTA}Looking for enhanced patterns:{Colors.ENDC}")
-
-        # Process read patterns
-        for pattern_idx, pattern in enumerate(read_patterns):
-            print(
-                f"{Colors.MAGENTA}- Read pattern #{pattern_idx + 1}: {pattern}{Colors.ENDC}"
-            )
-            read_matches = list(re.finditer(pattern, cleaned_message, re.IGNORECASE))
-            print(f"{Colors.MAGENTA}  Found {len(read_matches)} matches{Colors.ENDC}")
-
-            for i, match in enumerate(read_matches):
-                path = match.group(1).strip()
-                print(
-                    f"{Colors.MAGENTA}  Read match #{i + 1}: path = {path}{Colors.ENDC}"
-                )
-                commands.append({"action": "read", "path": path})
-
-        # Process write patterns
-        for pattern_idx, pattern in enumerate(write_patterns):
-            print(
-                f"{Colors.MAGENTA}- Write pattern #{pattern_idx + 1}: {pattern}{Colors.ENDC}"
-            )
-            write_matches = list(re.finditer(pattern, cleaned_message, re.IGNORECASE))
-            print(f"{Colors.MAGENTA}  Found {len(write_matches)} matches{Colors.ENDC}")
-
-            for i, match in enumerate(write_matches):
-                path = match.group(1).strip()
-                print(
-                    f"{Colors.MAGENTA}  Write match #{i + 1}: path = {path}{Colors.ENDC}"
-                )
-                commands.append({"action": "write", "path": path})
-
-        # Process list patterns
-        for pattern_idx, pattern in enumerate(list_patterns):
-            print(
-                f"{Colors.MAGENTA}- List pattern #{pattern_idx + 1}: {pattern}{Colors.ENDC}"
-            )
-            list_matches = list(re.finditer(pattern, cleaned_message, re.IGNORECASE))
-            print(f"{Colors.MAGENTA}  Found {len(list_matches)} matches{Colors.ENDC}")
-
-            for i, match in enumerate(list_matches):
-                path = match.group(1).strip()
-                print(
-                    f"{Colors.MAGENTA}  List match #{i + 1}: path = {path}{Colors.ENDC}"
-                )
-                commands.append({"action": "list", "path": path})
-
-        # Process search patterns
-        for pattern_idx, pattern in enumerate(search_patterns):
-            print(
-                f"{Colors.MAGENTA}- Search pattern #{pattern_idx + 1}: {pattern}{Colors.ENDC}"
-            )
-            search_matches = list(re.finditer(pattern, cleaned_message, re.IGNORECASE))
-            print(f"{Colors.MAGENTA}  Found {len(search_matches)} matches{Colors.ENDC}")
-
-            for i, match in enumerate(search_matches):
-                pattern = match.group(1).strip()
-                path = match.group(2).strip()
-                print(
-                    f"{Colors.MAGENTA}  Search match #{i + 1}: pattern = {pattern}, path = {path}{Colors.ENDC}"
-                )
-                commands.append({"action": "search", "path": path, "pattern": pattern})
-
-        # Process pwd patterns
-        for pattern_idx, pattern in enumerate(pwd_patterns):
-            print(
-                f"{Colors.MAGENTA}- PWD pattern #{pattern_idx + 1}: {pattern}{Colors.ENDC}"
-            )
-            pwd_matches = list(re.finditer(pattern, cleaned_message, re.IGNORECASE))
-            print(f"{Colors.MAGENTA}  Found {len(pwd_matches)} matches{Colors.ENDC}")
-
-            for i, match in enumerate(pwd_matches):
-                print(f"{Colors.MAGENTA}  PWD match #{i + 1}{Colors.ENDC}")
-                commands.append({"action": "pwd"})
-
-        # Process grep patterns
-        for pattern_idx, pattern in enumerate(grep_patterns):
-            print(
-                f"{Colors.MAGENTA}- Grep pattern #{pattern_idx + 1}: {pattern}{Colors.ENDC}"
-            )
-            grep_matches = list(re.finditer(pattern, cleaned_message, re.IGNORECASE))
-            print(f"{Colors.MAGENTA}  Found {len(grep_matches)} matches{Colors.ENDC}")
-
-            for i, match in enumerate(grep_matches):
-                grep_pattern = match.group(1).strip()
-                path = match.group(2).strip()
-                print(
-                    f"{Colors.MAGENTA}  Grep match #{i + 1}: pattern = {grep_pattern}, path = {path}{Colors.ENDC}"
-                )
-                commands.append(
-                    {"action": "grep", "path": path, "pattern": grep_pattern}
-                )
-
-        # Special case for direct file requests like "Read CLAUDE.md" or "Read the contents of CLAUDE.md"
-        if not commands:  # Only if no other commands were found
+        
+        # Use XML parsing for command extraction
+        # Look for <mcp:filesystem> tags in the message
+        try:
+            # Find all <mcp:filesystem> blocks in the message
+            mcp_blocks = re.findall(r'<mcp:filesystem>(.*?)</mcp:filesystem>', cleaned_message, re.DOTALL)
+            
+            print(f"{Colors.MAGENTA}Found {len(mcp_blocks)} MCP filesystem blocks{Colors.ENDC}")
+            
+            # Process each MCP block using XML parsing
+            for block_idx, block in enumerate(mcp_blocks):
+                print(f"{Colors.MAGENTA}Processing MCP block #{block_idx + 1}:{Colors.ENDC}")
+                print(f"{Colors.MAGENTA}{block}{Colors.ENDC}")
+                
+                # Wrap the block in a root element for proper XML parsing
+                xml_content = f"<root>{block}</root>"
+                
+                # Use a more permissive approach for handling potentially malformed XML
+                try:
+                    root = ET.fromstring(xml_content)
+                    
+                    # Process each command element in the block
+                    for cmd_element in root:
+                        cmd_type = cmd_element.tag.lower()
+                        print(f"{Colors.MAGENTA}Processing command type: {cmd_type}{Colors.ENDC}")
+                        
+                        # Convert XML elements to command dictionaries
+                        if cmd_type == "read":
+                            path = cmd_element.get("path", "")
+                            if path:
+                                print(f"{Colors.MAGENTA}Read command with path: {path}{Colors.ENDC}")
+                                commands.append({"action": "read", "path": path})
+                        
+                        elif cmd_type == "write":
+                            path = cmd_element.get("path", "")
+                            content = cmd_element.text if cmd_element.text else ""
+                            if path:
+                                print(f"{Colors.MAGENTA}Write command with path: {path}{Colors.ENDC}")
+                                commands.append({"action": "write", "path": path, "content": content})
+                        
+                        elif cmd_type == "list":
+                            path = cmd_element.get("path", "")
+                            if path:
+                                print(f"{Colors.MAGENTA}List command with path: {path}{Colors.ENDC}")
+                                commands.append({"action": "list", "path": path})
+                        
+                        elif cmd_type == "search":
+                            path = cmd_element.get("path", "")
+                            pattern = cmd_element.get("pattern", "")
+                            if path and pattern:
+                                print(f"{Colors.MAGENTA}Search command with path: {path}, pattern: {pattern}{Colors.ENDC}")
+                                commands.append({"action": "search", "path": path, "pattern": pattern})
+                        
+                        elif cmd_type == "pwd":
+                            print(f"{Colors.MAGENTA}PWD command{Colors.ENDC}")
+                            commands.append({"action": "pwd"})
+                        
+                        elif cmd_type == "grep":
+                            path = cmd_element.get("path", "")
+                            pattern = cmd_element.get("pattern", "")
+                            if path and pattern:
+                                print(f"{Colors.MAGENTA}Grep command with path: {path}, pattern: {pattern}{Colors.ENDC}")
+                                commands.append({"action": "grep", "path": path, "pattern": pattern})
+                                
+                except Exception as xml_error:
+                    print(f"{Colors.RED}Error parsing XML: {str(xml_error)}{Colors.ENDC}")
+                    # Fall back to regex-based extraction for this block if XML parsing fails
+                    
+        except Exception as e:
+            print(f"{Colors.RED}Error extracting MCP commands: {str(e)}{Colors.ENDC}")
+            
+        # Fallback for direct file references outside XML structure
+        # Only if no commands were found using XML parsing
+        if not commands:
             # Check if the message is in the format "Read the contents of X"
             content_request = re.search(
                 r'(?:read|show|display|get)\s+(?:the\s+)?(?:contents\s+of|file)?\s+["\']?([^"\'<>:;,\s]+\.[^"\'<>:;,\s]+)["\']?',
@@ -461,8 +408,8 @@ class OllamaAgent:
                     )
 
                 elif action == "write":
-                    # Simplified, would normally get content from message
-                    content = "This is test content written by Ollama"
+                    # Extract content from command if available
+                    content = cmd.get("content", "This is test content written by Ollama")
                     result = self.fs_client.write_file(path, content)
                     results.append(
                         {
@@ -1011,32 +958,36 @@ if __name__ == "__main__":
     # Define the system prompt with detailed file command instructions
     system_prompt = """You are an expert coding assistant with filesystem access capabilities.
 
-To access files or directories, use ONLY these EXACT command formats in your response, each on its own line:
-1. read file /path/to/file
-2. list directory /path/to/dir
-3. search for "pattern" in /path/to/search
-4. write to file /path/to/file with content
-5. pwd
-6. grep for "pattern" in /path/to/search
+To access files or directories, use XML-formatted commands within <mcp:filesystem> tags. Here's how to use them:
+
+<mcp:filesystem>
+    <read path="/path/to/file" />
+    <write path="/path/to/file">Content to write to the file</write>
+    <list path="/path/to/directory" />
+    <search path="/path/to/search" pattern="search pattern" />
+    <pwd />
+    <grep path="/path/to/search" pattern="grep pattern" />
+</mcp:filesystem>
 
 CRITICAL REQUIREMENTS FOR COMMANDS:
-- Commands MUST be written EXACTLY as shown above - any deviation will not be detected
+- Commands MUST be wrapped in <mcp:filesystem> tags
+- Each command is an XML element with appropriate attributes
 - File paths MUST start with / (absolute paths only)
-- Each command must be on its own line with no other text on that line
-- For search commands, pattern must be in double quotes
-- You CANNOT use any other variations or similar commands (no ls, cat, etc.)
+- Use proper XML syntax - each tag must be properly closed
+- For write commands, place the content between opening and closing tags
+- Pattern attributes must be enclosed in quotes
 - These commands will be detected, executed, and you'll receive the results
 - DO NOT hallucinate or invent the output of these commands
 
 COMMAND EXECUTION WORKFLOW:
-1. You issue one or more file commands in your response
+1. You issue one or more file commands in XML format
 2. You MUST END YOUR RESPONSE immediately after issuing commands
 3. The system will detect these commands, execute them, and return actual results
 4. You will receive these results as input in your next context window
 5. You can then analyze these real results and/or issue more commands
 
 STOP AND WAIT REQUIREMENT:
-- After issuing any MCP tool command(s), you MUST STOP your response IMMEDIATELY
+- After issuing any MCP filesystem commands, you MUST STOP your response IMMEDIATELY
 - NEVER continue writing after issuing commands, as the commands need to execute first
 - NEVER attempt to predict, simulate or hallucinate command results
 - NEVER make up content that would be returned by file operations
@@ -1058,20 +1009,29 @@ RESPONSE STRUCTURE:
 
 EXAMPLE OF CORRECT USAGE:
 "I'll start by determining the current working directory to establish our absolute base path:
-pwd"
+
+<mcp:filesystem>
+    <pwd />
+</mcp:filesystem>"
 
 [SYSTEM EXECUTES THE COMMAND AND RETURNS ACTUAL RESULTS TO YOU]
 
 "Now that I know we're working in /home/user/project, I'll check the main implementation file and project structure:
-read file /home/user/project/main.py
-list directory /home/user/project"
+
+<mcp:filesystem>
+    <read path="/home/user/project/main.py" />
+    <list path="/home/user/project" />
+</mcp:filesystem>"
 
 [SYSTEM EXECUTES THESE COMMANDS AND RETURNS ACTUAL RESULTS TO YOU]
 
 "Based on the code in main.py and the project structure I've just examined, I can see this is a Flask application. Let me examine the model implementation and configuration files:
-read file /home/user/project/models/user.py
-read file /home/user/project/config/settings.py
-grep for "database" in /home/user/project"
+
+<mcp:filesystem>
+    <read path="/home/user/project/models/user.py" />
+    <read path="/home/user/project/config/settings.py" />
+    <grep path="/home/user/project" pattern="database" />
+</mcp:filesystem>"
 
 [SYSTEM EXECUTES THESE COMMANDS AND RETURNS ACTUAL RESULTS TO YOU]
 
@@ -1089,17 +1049,17 @@ grep for "database" in /home/user/project"
     # Interactive loop
     print("Coding Agent with File System Access initialized. Type 'exit' to quit.")
     print(
-        "\nIMPORTANT: File commands are detected in the AI's responses using strict patterns."
+        "\nIMPORTANT: File commands are detected in the AI's responses using XML format."
     )
     print(
-        "The AI must follow these EXACT formats (one command per line, absolute paths only):"
+        "The AI must follow these formats within <mcp:filesystem> tags:"
     )
-    print("  read file /path/to/file")
-    print("  list directory /path/to/dir")
-    print('  search for "pattern" in /path/to/dir')
-    print("  write to file /path/to/file with content")
-    print("  pwd")
-    print('  grep for "pattern" in /path/to/dir')
+    print("  <read path=\"/path/to/file\" />")
+    print("  <list path=\"/path/to/dir\" />")
+    print("  <search path=\"/path/to/dir\" pattern=\"search pattern\" />")
+    print("  <write path=\"/path/to/file\">Content goes here</write>")
+    print("  <pwd />")
+    print("  <grep path=\"/path/to/dir\" pattern=\"grep pattern\" />")
     
     print("\nIMPORTANT WORKFLOW:")
     print("1. The AI will issue file commands and STOP its response")
@@ -1110,15 +1070,14 @@ grep for "database" in /home/user/project"
     
     print("\nNEW FEATURES:")
     print(
-        "1. Multi-step responses: The AI can now issue file commands, analyze results,"
+        "1. XML-based command syntax for more robust parsing"
     )
+    print("2. Multi-step responses: The AI can issue file commands, analyze results,")
     print("   then issue more file commands in its continuations as needed")
     print(
-        "2. Recursive command processing: Commands are processed in multiple iterations until"
+        "3. Recursive command processing: Commands are processed in multiple iterations until"
     )
     print("   the response is complete with no more commands")
-    print("3. Better command detection: Commands must be written exactly as shown")
-    print("   above to be detected and executed")
     print("4. Context management: Use these commands to manage conversation context:")
     print("   - /status - Show current context size and usage")
     print("   - /prune [n] - Remove older messages, keeping last n exchanges")

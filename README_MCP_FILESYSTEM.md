@@ -1,10 +1,10 @@
-# MCP Filesystem Server for Arch Linux
+# MCP Filesystem Server with XML Interface
 
-This README explains how to set up and use the Model Control Protocol (MCP) Filesystem Server implementation for Arch Linux environments.
+This README explains how to set up and use the Model Control Protocol (MCP) Filesystem Server implementation with its XML-based command interface.
 
 ## Prerequisites
 
-Ensure you have the following installed on your Arch Linux system:
+Ensure you have the following installed on your system:
 
 ```bash
 sudo pacman -S python python-pip
@@ -24,6 +24,27 @@ python src/mcp_filesystem_server.py
 ```
 
 This will launch the server on `http://127.0.0.1:8000`. The server provides a REST API for filesystem operations.
+
+## XML Command Format
+
+The MCP Filesystem interface now uses an XML-based syntax for all commands. Commands should be wrapped in `<mcp:filesystem>` tags:
+
+```xml
+<mcp:filesystem>
+    <command attribute="value" attribute2="value2" />
+</mcp:filesystem>
+```
+
+### Available Commands
+
+| Command | Format | Description |
+|---------|--------|-------------|
+| read | `<read path="/path/to/file" />` | Read a file's contents |
+| write | `<write path="/path/to/file">Content</write>` | Write content to a file |
+| list | `<list path="/path/to/directory" />` | List directory contents |
+| search | `<search path="/path" pattern="pattern" />` | Search for files matching pattern |
+| pwd | `<pwd />` | Get current working directory |
+| grep | `<grep path="/path" pattern="pattern" />` | Search file contents for pattern |
 
 ## API Endpoints
 
@@ -79,73 +100,97 @@ python src/ollama_inference_offline.py
 
 ## Usage Examples
 
-Once the MCP server and either client are running, you can use the following commands:
+Once the MCP server and either client are running, you can use the following XML commands:
 
 ### Basic Operations
 
 1. List directory contents:
-```
-list directory /home/dago/dev/projects/llm
+```xml
+<mcp:filesystem>
+    <list path="/home/dago/dev/projects/llm" />
+</mcp:filesystem>
 ```
 
 2. Read a file:
-```
-read file /home/dago/dev/projects/llm/CLAUDE.md
+```xml
+<mcp:filesystem>
+    <read path="/home/dago/dev/projects/llm/CLAUDE.md" />
+</mcp:filesystem>
 ```
 
 3. Search for files (using glob pattern):
-```
-search for "*.py" in /home/dago/dev/projects/llm/src
+```xml
+<mcp:filesystem>
+    <search path="/home/dago/dev/projects/llm/src" pattern="*.py" />
+</mcp:filesystem>
 ```
 
 4. Search file contents (using grep):
-```
-grep for "import" in /home/dago/dev/projects/llm/src
+```xml
+<mcp:filesystem>
+    <grep path="/home/dago/dev/projects/llm/src" pattern="import" />
+</mcp:filesystem>
 ```
 
 5. Get current working directory:
-```
-pwd
+```xml
+<mcp:filesystem>
+    <pwd />
+</mcp:filesystem>
 ```
 
 6. Write to a file:
-```
-write to file /home/dago/dev/projects/llm/test_output.txt with content
+```xml
+<mcp:filesystem>
+    <write path="/home/dago/dev/projects/llm/test_output.txt">
+        This content will be written to the file.
+        Multiple lines are supported.
+    </write>
+</mcp:filesystem>
 ```
 
 ### Practical Examples
 
-1. Summarize a Python file:
-```
-read file /home/dago/dev/projects/llm/src/ollama_inference.py and summarize its main functionality
-```
-
-2. Find all Python files and analyze imports:
-```
-search for "*.py" in /home/dago/dev/projects/llm and list the main imports used in each file
-```
-
-3. Search for specific code patterns:
-```
-grep for "def __init__" in /home/dago/dev/projects/llm/src and analyze the initialization patterns
+1. Multiple commands in a single block:
+```xml
+<mcp:filesystem>
+    <pwd />
+    <list path="/home/dago/dev/projects/llm" />
+    <grep path="/home/dago/dev/projects/llm/src" pattern="import requests" />
+</mcp:filesystem>
 ```
 
-4. Get current directory and create a file:
-```
-pwd
-write to file /home/dago/dev/projects/llm/current_dir_log.txt with content
-```
-
-5. Compare glob search vs grep search:
-```
-search for "*.py" in /home/dago/dev/projects/llm/src
-grep for "import requests" in /home/dago/dev/projects/llm/src
+2. Read multiple files:
+```xml
+<mcp:filesystem>
+    <read path="/home/dago/dev/projects/llm/src/ollama_inference.py" />
+    <read path="/home/dago/dev/projects/llm/src/mcp_filesystem_server.py" />
+</mcp:filesystem>
 ```
 
-6. Create project structure:
+3. Create project structure and write files:
+```xml
+<mcp:filesystem>
+    <list path="/home/dago/dev/projects/llm" />
+    <write path="/home/dago/dev/projects/llm/notes.md">
+        # Project Notes
+        
+        This document contains notes about the project structure.
+    </write>
+</mcp:filesystem>
 ```
-list directory /home/dago/dev/projects/llm and suggest improvements to the project structure
-```
+
+## Advantages of XML Format
+
+The XML-based command format provides several benefits:
+
+1. **Structured Data**: Clear hierarchy and organization of command components
+2. **Better Parsing**: Reliable parsing with proper XML libraries
+3. **Multi-line Content**: Native support for multi-line content in write operations
+4. **Parameter Clarity**: Attributes clearly define parameters for each command
+5. **Extensibility**: Easy to extend with new commands or parameters
+6. **Nested Operations**: Support for grouped commands in a single block
+7. **Reduced Ambiguity**: Explicit start and end tags eliminate parsing ambiguities
 
 ## Security Notes
 
@@ -163,4 +208,4 @@ list directory /home/dago/dev/projects/llm and suggest improvements to the proje
 
 ---
 
-This implementation provides a minimal but functional filesystem interface for language models via the MCP protocol, allowing controlled access to the filesystem while maintaining security boundaries.
+This implementation provides a robust filesystem interface for language models via the MCP protocol with an XML-based command structure, allowing controlled access to the filesystem while maintaining security boundaries and improving parsing reliability.

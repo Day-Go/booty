@@ -1,6 +1,11 @@
-Quickstart
+# Model Control Protocol (MCP)
+
+The Model Control Protocol (MCP) provides a standardized way for language models to interact with external systems. This project extends MCP with an XML-based filesystem interface for more robust command parsing and execution.
+
+## Quickstart
 Let's create a simple MCP server that exposes a calculator tool and some data:
 
+```python
 # server.py
 from mcp.server.fastmcp import FastMCP
 
@@ -18,17 +23,41 @@ def add(a: int, b: int) -> int:
 def get_greeting(name: str) -> str:
     """Get a personalized greeting"""
     return f"Hello, {name}!"
+```
+
 You can install this server in Claude Desktop and interact with it right away by running:
 
+```bash
 mcp install server.py
+```
 Alternatively, you can test it with the MCP Inspector:
 
+```bash
 mcp dev server.py
+```
+
+## XML-Based Filesystem Interface
+
+This project implements an XML-based syntax for the MCP filesystem interface. All commands are wrapped in `<mcp:filesystem>` tags, and each operation is represented as an XML element with appropriate attributes:
+
+```xml
+<mcp:filesystem>
+    <read path="/path/to/file" />
+    <write path="/path/to/file">Content to write</write>
+    <list path="/path/to/directory" />
+    <search path="/path/to/search" pattern="search-pattern" />
+    <pwd />
+    <grep path="/path/to/search" pattern="grep-pattern" />
+</mcp:filesystem>
+```
+
+This XML approach provides better parsing reliability, clearer command structure, and improved handling of complex operations like multi-line content.
 
 # Core Concepts
 Server
 The FastMCP server is your core interface to the MCP protocol. It handles connection management, protocol compliance, and message routing:
 
+```python
 # Add lifespan support for startup/shutdown with strong typing
 from dataclasses import dataclass
 from typing import AsyncIterator
@@ -64,9 +93,12 @@ def query_db(ctx: Context) -> str:
     """Tool that uses initialized resources"""
     db = ctx.request_context.lifespan_context["db"]
     return db.query()
+```
+
 Resources
 Resources are how you expose data to LLMs. They're similar to GET endpoints in a REST API - they provide data but shouldn't perform significant computation or have side effects:
 
+```python
 @mcp.resource("config://app")
 def get_config() -> str:
     """Static configuration data"""
@@ -76,9 +108,12 @@ def get_config() -> str:
 def get_user_profile(user_id: str) -> str:
     """Dynamic user data"""
     return f"Profile data for user {user_id}"
+```
+
 Tools
 Tools let LLMs take actions through your server. Unlike resources, tools are expected to perform computation and have side effects:
 
+```python
 @mcp.tool()
 def calculate_bmi(weight_kg: float, height_m: float) -> float:
     """Calculate BMI given weight in kg and height in meters"""
@@ -90,9 +125,12 @@ async def fetch_weather(city: str) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.get(f"https://api.weather.com/{city}")
         return response.text
+```
+
 Prompts
 Prompts are reusable templates that help LLMs interact with your server effectively:
 
+```python
 @mcp.prompt()
 def review_code(code: str) -> str:
     return f"Please review this code:\n\n{code}"
@@ -104,9 +142,12 @@ def debug_error(error: str) -> list[Message]:
         UserMessage(error),
         AssistantMessage("I'll help debug that. What have you tried so far?")
     ]
+```
+
 Images
 FastMCP provides an Image class that automatically handles image data:
 
+```python
 from mcp.server.fastmcp import FastMCP, Image
 from PIL import Image as PILImage
 
@@ -116,9 +157,12 @@ def create_thumbnail(image_path: str) -> Image:
     img = PILImage.open(image_path)
     img.thumbnail((100, 100))
     return Image(data=img.tobytes(), format="png")
+```
+
 Context
 The Context object gives your tools and resources access to MCP capabilities:
 
+```python
 from mcp.server.fastmcp import FastMCP, Context
 
 @mcp.tool()
@@ -129,10 +173,13 @@ async def long_task(files: list[str], ctx: Context) -> str:
         await ctx.report_progress(i, len(files))
         data, mime_type = await ctx.read_resource(f"file://{file}")
     return "Processing complete"
+```
+
 Running Your Server
 Development Mode
 The fastest way to test and debug your server is with the MCP Inspector:
 
+```bash
 mcp dev server.py
 
 # Add dependencies
@@ -140,9 +187,12 @@ mcp dev server.py --with pandas --with numpy
 
 # Mount local code
 mcp dev server.py --with-editable .
+```
+
 Claude Desktop Integration
 Once your server is ready, install it in Claude Desktop:
 
+```bash
 mcp install server.py
 
 # Custom name
@@ -151,230 +201,33 @@ mcp install server.py --name "My Analytics Server"
 # Environment variables
 mcp install server.py -v API_KEY=abc123 -v DB_URL=postgres://...
 mcp install server.py -f .env
+```
+
 Direct Execution
 For advanced scenarios like custom deployments:
 
+```python
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("My App")
 
 if __name__ == "__main__":
     mcp.run()
+```
+
 Run it with:
 
+```bash
 python server.py
 # or
 mcp run server.py
-Examples
-Echo Server
-A simple server demonstrating resources, tools, and prompts:
+```
 
-from mcp.server.fastmcp import FastMCP
-
-mcp = FastMCP("Echo")
-
-@mcp.resource("echo://{message}")
-def echo_resource(message: str) -> str:
-    """Echo a message as a resource"""
-    return f"Resource echo: {message}"
-
-@mcp.tool()
-def echo_tool(message: str) -> str:
-    """Echo a message as a tool"""
-    return f"Tool echo: {message}"
-
-@mcp.prompt()
-def echo_prompt(message: str) -> str:
-    """Create an echo prompt"""
-    return f"Please process this message: {message}"
-SQLite Explorer
-A more complex example showing database integration:
-
-from mcp.server.fastmcp import FastMCP
-import sqlite3
-
-mcp = FastMCP("SQLite Explorer")
-
-@mcp.resource("schema://main")
-def get_schema() -> str:
-    """Provide the database schema as a resource"""
-    conn = sqlite3.connect("database.db")
-    schema = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table'"
-    ).fetchall()
-    return "\n".join(sql[0] for sql in schema if sql[0])
-
-@mcp.tool()
-def query_data(sql: str) -> str:
-    """Execute SQL queries safely"""
-    conn = sqlite3.connect("database.db")
-    try:
-        result = conn.execute(sql).fetchall()
-        return "\n".join(str(row) for row in result)
-    except Exception as e:
-        return f"Error: {str(e)}"
-Advanced Usage
-Low-Level Server
-For more control, you can use the low-level server implementation directly. This gives you full access to the protocol and allows you to customize every aspect of your server, including lifecycle management through the lifespan API:
-
-from contextlib import asynccontextmanager
-from typing import AsyncIterator
-
-@asynccontextmanager
-async def server_lifespan(server: Server) -> AsyncIterator[dict]:
-    """Manage server startup and shutdown lifecycle."""
-    try:
-        # Initialize resources on startup
-        await db.connect()
-        yield {"db": db}
-    finally:
-        # Clean up on shutdown
-        await db.disconnect()
-
-# Pass lifespan to server
-server = Server("example-server", lifespan=server_lifespan)
-
-# Access lifespan context in handlers
-@server.call_tool()
-async def query_db(name: str, arguments: dict) -> list:
-    ctx = server.request_context
-    db = ctx.lifespan_context["db"]
-    return await db.query(arguments["query"])
-The lifespan API provides:
-
-A way to initialize resources when the server starts and clean them up when it stops
-Access to initialized resources through the request context in handlers
-Type-safe context passing between lifespan and request handlers
-from mcp.server.lowlevel import Server, NotificationOptions
-from mcp.server.models import InitializationOptions
-import mcp.server.stdio
-import mcp.types as types
-
-# Create a server instance
-server = Server("example-server")
-
-@server.list_prompts()
-async def handle_list_prompts() -> list[types.Prompt]:
-    return [
-        types.Prompt(
-            name="example-prompt",
-            description="An example prompt template",
-            arguments=[
-                types.PromptArgument(
-                    name="arg1",
-                    description="Example argument",
-                    required=True
-                )
-            ]
-        )
-    ]
-
-@server.get_prompt()
-async def handle_get_prompt(
-    name: str,
-    arguments: dict[str, str] | None
-) -> types.GetPromptResult:
-    if name != "example-prompt":
-        raise ValueError(f"Unknown prompt: {name}")
-
-    return types.GetPromptResult(
-        description="Example prompt",
-        messages=[
-            types.PromptMessage(
-                role="user",
-                content=types.TextContent(
-                    type="text",
-                    text="Example prompt text"
-                )
-            )
-        ]
-    )
-
-async def run():
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="example",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                )
-            )
-        )
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(run())
-Writing MCP Clients
-The SDK provides a high-level client interface for connecting to MCP servers:
-
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-
-# Create server parameters for stdio connection
-server_params = StdioServerParameters(
-    command="python", # Executable
-    args=["example_server.py"], # Optional command line arguments
-    env=None # Optional environment variables
-)
-
-# Optional: create a sampling callback
-async def handle_sampling_message(message: types.CreateMessageRequestParams) -> types.CreateMessageResult:
-    return types.CreateMessageResult(
-        role="assistant",
-        content=types.TextContent(
-            type="text",
-            text="Hello, world! from model",
-        ),
-        model="gpt-3.5-turbo",
-        stopReason="endTurn",
-    )
-
-async def run():
-    async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write, sampling_callback=handle_sampling_message) as session:
-            # Initialize the connection
-            await session.initialize()
-
-            # List available prompts
-            prompts = await session.list_prompts()
-
-            # Get a prompt
-            prompt = await session.get_prompt("example-prompt", arguments={"arg1": "value"})
-
-            # List available resources
-            resources = await session.list_resources()
-
-            # List available tools
-            tools = await session.list_tools()
-
-            # Read a resource
-            content, mime_type = await session.read_resource("file://some/path")
-
-            # Call a tool
-            result = await session.call_tool("tool-name", arguments={"arg1": "value"})
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(run())
-MCP Primitives
+## MCP Primitives
 The MCP protocol defines three core primitives that servers can implement:
 
-Primitive	Control	Description	Example Use
-Prompts	User-controlled	Interactive templates invoked by user choice	Slash commands, menu options
-Resources	Application-controlled	Contextual data managed by the client application	File contents, API responses
-Tools	Model-controlled	Functions exposed to the LLM to take actions	API calls, data updates
-Server Capabilities
-MCP servers declare capabilities during initialization:
-
-Capability	Feature Flag	Description
-prompts	listChanged	Prompt template management
-resources	subscribe
-listChanged	Resource exposure and updates
-tools	listChanged	Tool discovery and execution
-logging	-	Server logging configuration
-completion	-	Argument completion suggestions
-
+| Primitive | Control | Description | Example Use |
+|-----------|---------|-------------|------------|
+| Prompts | User-controlled | Interactive templates invoked by user choice | Slash commands, menu options |
+| Resources | Application-controlled | Contextual data managed by the client application | File contents, API responses |
+| Tools | Model-controlled | Functions exposed to the LLM to take actions | API calls, data updates |
