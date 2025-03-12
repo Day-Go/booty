@@ -225,6 +225,95 @@ class MCPFilesystemClient:
         return result
 
 
+class StreamingXMLParser:
+    """Streaming parser for XML-based MCP commands"""
+    def __init__(self):
+        # Parser state
+        self.in_mcp_block = False
+        self.buffer = ""
+        self.xml_stack = []
+        self.complete_command = ""
+        self.in_think_block = False
+
+    def feed(self, token: str) -> bool:
+        """
+        Process a new token and update parser state.
+        
+        Returns True if a complete MCP command is detected.
+        """
+        # Track if we're inside thinking blocks
+        if "<think>" in self.buffer + token and not self.in_think_block:
+            self.in_think_block = True
+            
+        if "</think>" in self.buffer + token and self.in_think_block:
+            self.in_think_block = False
+            # Clear buffer after exiting think block since we don't want to process commands in thinking
+            self.buffer = ""
+            return False
+
+        # Skip processing if inside a thinking block
+        if self.in_think_block:
+            self.buffer += token
+            return False
+            
+        # Add token to buffer
+        self.buffer += token
+        
+        # Detect opening of MCP block
+        if "<mcp:filesystem>" in self.buffer and not self.in_mcp_block:
+            self.in_mcp_block = True
+            self.xml_stack.append("mcp:filesystem")
+            self.complete_command = "<mcp:filesystem>"
+            # Remove everything before the opening tag
+            start_idx = self.buffer.find("<mcp:filesystem>") + len("<mcp:filesystem>")
+            self.buffer = self.buffer[start_idx:]
+            
+        # Process content inside MCP block
+        if self.in_mcp_block:
+            # Track XML tag openings
+            for match in re.finditer(r"<(\w+)[^>]*>", self.buffer):
+                tag = match.group(1)
+                if not match.group(0).endswith("/>"):  # Not a self-closing tag
+                    self.xml_stack.append(tag)
+                    
+            # Track XML tag closings
+            for match in re.finditer(r"</(\w+)>", self.buffer):
+                tag = match.group(1)
+                if self.xml_stack and self.xml_stack[-1] == tag:
+                    self.xml_stack.pop()
+                    
+                    # Check if we've closed the MCP block
+                    if not self.xml_stack and tag == "mcp:filesystem":
+                        # We have a complete command
+                        end_idx = match.end()
+                        self.complete_command += self.buffer[:end_idx]
+                        self.buffer = self.buffer[end_idx:]
+                        self.in_mcp_block = False
+                        return True
+                        
+            # Update the complete command with the buffer and clear the buffer
+            # only if we're still in an MCP block
+            if self.in_mcp_block:
+                self.complete_command += self.buffer
+                self.buffer = ""
+                
+        return False
+
+    def get_command(self) -> str:
+        """Return the complete MCP command"""
+        command = self.complete_command
+        self.complete_command = ""
+        return command
+        
+    def reset(self):
+        """Reset parser state"""
+        self.in_mcp_block = False
+        self.buffer = ""
+        self.xml_stack = []
+        self.complete_command = ""
+        self.in_think_block = False
+
+
 class OllamaAgent:
     def __init__(
         self,
@@ -447,13 +536,85 @@ class OllamaAgent:
                 )
 
         return results
+        
+    def _format_command_results(self, results: List[Dict[str, Any]]) -> str:
+        """Format command execution results for inclusion in the model context"""
+        result_output = ""
+        for result in results:
+            action = result.get("action")
+            path = result.get("path", "")  # Handle pwd which doesn't have path
+            success = result.get("success", False)
+
+            # Skip failed operations
+            if not success:
+                error_msg = f"\n[Failed to {action}{' ' + path if path else ''}: {result.get('error', 'Unknown error')}]\n"
+                result_output += error_msg
+                continue
+
+            if action == "read":
+                content = result.get("content", "")
+                result_output += f"\n--- Content of {path} ---\n{content}\n---\n"
+
+            elif action == "list":
+                entries = result.get("entries", [])
+                entries_text = "\n".join(
+                    [
+                        f"- {entry['name']}"
+                        + (
+                            f" [dir]"
+                            if entry["type"] == "directory"
+                            else f" [{entry['size']} bytes]"
+                        )
+                        for entry in entries
+                    ]
+                )
+                result_output += (
+                    f"\n--- Contents of directory {path} ---\n{entries_text}\n---\n"
+                )
+
+            elif action == "search":
+                pattern = result.get("pattern", "")
+                matches = result.get("matches", [])
+                matches_text = "\n".join([f"- {match}" for match in matches])
+                result_output += f"\n--- Search results for '{pattern}' in {path} ---\n{matches_text}\n---\n"
+
+            elif action == "write":
+                result_output += f"\n[Successfully wrote to file {path}]\n"
+
+            elif action == "pwd":
+                current_dir = result.get("current_dir", "")
+                result_output += (
+                    f"\n--- Current working directory ---\n{current_dir}\n---\n"
+                )
+
+            elif action == "grep":
+                pattern = result.get("pattern", "")
+                matches = result.get("matches", [])
+                if matches:
+                    matches_text = "\n".join(
+                        [
+                            f"- {match['file']}:{match['line']}: {match['content']}"
+                            for match in matches
+                        ]
+                    )
+                    result_output += f"\n--- Grep results for '{pattern}' in {path} ---\n{matches_text}\n---\n"
+                else:
+                    result_output += f"\n--- No grep matches for '{pattern}' in {path} ---\n---\n"
+                    
+        return result_output
 
     def _generate_raw_response(self, prompt, system_prompt=None, stream=True) -> str:
-        """Generate a raw response from Ollama API without any processing
-        This method is used internally to get the unprocessed response from the LLM.
-
+        """Generate a raw response from Ollama API with streaming command detection
+        
+        This method now:
+        1. Streams tokens from the LLM
+        2. Monitors for complete MCP filesystem XML commands
+        3. Interrupts generation when a command is detected
+        4. Executes the command and injects the result
+        5. Continues generation with the new context
+        
         If stream=True, it will stream the response to the console in real-time
-        and return the complete response when done.
+        and handle MCP commands on-the-fly.
         """
         print(
             f"\n{Colors.BG_YELLOW}{Colors.BOLD}DEBUG: Getting raw response from Ollama{Colors.ENDC}"
@@ -463,7 +624,7 @@ class OllamaAgent:
         endpoint = f"{self.api_base}/api/generate"
 
         # Build the request payload
-        payload = {"model": self.model, "prompt": prompt, "stream": stream}
+        payload = {"model": self.model, "prompt": prompt, "stream": True}  # Always stream for command detection
 
         # Add system prompt if provided
         if system_prompt:
@@ -472,54 +633,112 @@ class OllamaAgent:
         # Make the request to Ollama API
         print(f"{Colors.YELLOW}Making request to Ollama API...{Colors.ENDC}")
 
-        if stream:
-            # Streaming implementation for better UX
-            print(f"{Colors.YELLOW}Streaming raw response from Ollama...{Colors.ENDC}")
+        # Initialize the streaming parser
+        xml_parser = StreamingXMLParser()
+        
+        # Initialize response tracking
+        full_response = ""
+        should_continue = True
+        has_completed = False
+        
+        # Track if we need to continue generation after command execution
+        need_continuation = False
+        
+        while should_continue:
+            # Make the API request
+            print(f"{Colors.YELLOW}Streaming response with command detection...{Colors.ENDC}")
             response = requests.post(endpoint, json=payload, stream=True)
-
-            # Check if request was successful
             response.raise_for_status()
-
-            full_response = ""
-            print("Response: ", end="", flush=True)
-
-            # Process the streaming response
+            
+            if not need_continuation:
+                print("Response: ", end="", flush=True)
+            
+            # Process the streaming response token by token
             for line in response.iter_lines():
-                if line:
-                    json_response = json.loads(line)
-                    response_part = json_response.get("response", "")
+                if not line:
+                    continue
+                    
+                json_response = json.loads(line)
+                response_part = json_response.get("response", "")
+                
+                # Print token to user if we're not in continuation mode
+                if stream:
                     print(response_part, end="", flush=True)
-                    full_response += response_part
-
-                    # Check if done
-                    if json_response.get("done", False):
-                        print()  # Add newline at the end
+                
+                # Check if the model is done generating
+                if json_response.get("done", False):
+                    has_completed = True
+                    if stream:
+                        print()  # Add newline
+                    break
+                
+                # Add token to response
+                full_response += response_part
+                
+                # Process token with XML parser
+                if xml_parser.feed(response_part):
+                    # Complete MCP command detected - interrupt generation
+                    print(f"\n{Colors.BG_MAGENTA}{Colors.BOLD}MCP COMMAND DETECTED - INTERRUPTING GENERATION{Colors.ENDC}")
+                    
+                    # Get the complete command
+                    mcp_command = xml_parser.get_command()
+                    print(f"{Colors.MAGENTA}Complete command: {mcp_command}{Colors.ENDC}")
+                    
+                    # Extract file commands from the XML
+                    commands = self._extract_file_commands(mcp_command)
+                    
+                    if commands:
+                        # Execute the commands
+                        print(f"{Colors.BG_BLUE}{Colors.BOLD}EXECUTING MCP COMMANDS{Colors.ENDC}")
+                        results = self._execute_file_commands(commands)
+                        
+                        # Format the results for display
+                        result_output = self._format_command_results(results)
+                        
+                        # Add results to full response
+                        full_response += "\n" + result_output
+                        
+                        if stream:
+                            print(f"\n{result_output}")
+                        
+                        # Set up for continuation
+                        need_continuation = True
+                        
+                        # Update the prompt with results for continuation
+                        prompt = f"{prompt}\n\nAI: {full_response}\n\n[System Message]\nNow that you have the requested information, please continue your response incorporating this information."
+                        payload = {"model": self.model, "prompt": prompt, "stream": True}
+                        if system_prompt:
+                            payload["system"] = system_prompt
+                            
+                        # Reset the XML parser for the continuation
+                        xml_parser.reset()
+                        
+                        # Break out of the token loop to start a new request
                         break
-
-            print(
-                f"{Colors.YELLOW}Raw response complete ({len(full_response)} characters){Colors.ENDC}"
-            )
-            return full_response
-        else:
-            # Non-streaming implementation (for internal use)
-            response = requests.post(endpoint, json=payload)
-            response.raise_for_status()
-            result = response.json().get("response", "")
-
-            print(
-                f"{Colors.YELLOW}Raw response length: {len(result)} characters{Colors.ENDC}"
-            )
-            return result
+            
+            # If the model finished generating and we don't need continuation, we're done
+            if has_completed and not need_continuation:
+                should_continue = False
+            
+            # If we need to continue after a command, we'll make another request
+            if need_continuation:
+                # Reset for next cycle
+                need_continuation = False
+                print(f"\n{Colors.BG_BLUE}{Colors.BOLD}CONTINUING GENERATION WITH COMMAND RESULTS{Colors.ENDC}\n")
+        
+        # Final response
+        print(f"{Colors.YELLOW}Response complete ({len(full_response)} characters){Colors.ENDC}")
+        return full_response
 
     def generate(self, prompt, system_prompt=None, stream=True):
-        """Generate a response using Ollama API with file command detection on the response
-
+        """Generate a response using Ollama API with real-time command detection
+        
         This is the core method that:
-        1. Gets a raw response from the LLM (streaming it to the user)
-        2. Extracts and executes file commands from that response
-        3. Gets a continuation from the LLM with the added context
-        4. Recursively processes the continuation for additional MCP commands
-        5. Returns the full response with all file command results and continuations
+        1. Gets a raw response from the LLM, watching for MCP commands in real-time
+        2. When a command is detected, interrupts the generation to execute it
+        3. Injects the command results and continues generation
+        4. Repeats until the complete response is generated
+        5. Returns the full response with all embedded command results
         """
         print(
             f"\n{Colors.BG_YELLOW}{Colors.BOLD}DEBUG: Starting generate with prompt:{Colors.ENDC}"
@@ -527,160 +746,10 @@ class OllamaAgent:
         print(f"{Colors.YELLOW}Prompt length: {len(prompt)} characters{Colors.ENDC}")
         print(f"{Colors.YELLOW}First 100 chars: {prompt[:100]}...{Colors.ENDC}")
 
-        # Get raw response from the LLM - WITH streaming for immediate feedback
-        raw_response = self._generate_raw_response(prompt, system_prompt, stream)
-
-        # Set up to track all parts of the conversation
-        full_response_parts = [raw_response]
-        current_response = raw_response
-        iteration_count = 0
-        max_iterations = 5  # Safety limit to prevent infinite loops
-
-        # Process commands recursively until no more are found
-        while iteration_count < max_iterations:
-            iteration_count += 1
-
-            # Extract file commands from the current response segment
-            print(
-                f"{Colors.BG_YELLOW}{Colors.BOLD}DEBUG: Extracting file commands from response (iteration {iteration_count}){Colors.ENDC}"
-            )
-            file_commands = self._extract_file_commands(current_response)
-
-            # If no more commands found, we're done
-            if not file_commands:
-                print(
-                    f"{Colors.BG_YELLOW}{Colors.BOLD}DEBUG: No more file commands found after {iteration_count} iterations{Colors.ENDC}"
-                )
-                break
-
-            # Execute the file commands
-            print(
-                f"{Colors.BG_YELLOW}{Colors.BOLD}DEBUG: Executing {len(file_commands)} file commands from iteration {iteration_count}{Colors.ENDC}"
-            )
-            file_results = self._execute_file_commands(file_commands)
-            self.tool_usage.extend(file_results)
-
-            # Format the results for user display
-            result_output = ""
-            for result in file_results:
-                action = result.get("action")
-                path = result.get("path", "")  # Handle pwd which doesn't have path
-                success = result.get("success", False)
-
-                # Skip failed operations
-                if not success:
-                    error_msg = f"\n[Failed to {action}{' ' + path if path else ''}: {result.get('error', 'Unknown error')}]\n"
-                    result_output += error_msg
-                    continue
-
-                if action == "read":
-                    content = result.get("content", "")
-                    result_output += f"\n--- Content of {path} ---\n{content}\n---\n"
-
-                elif action == "list":
-                    entries = result.get("entries", [])
-                    entries_text = "\n".join(
-                        [
-                            f"- {entry['name']}"
-                            + (
-                                f" [dir]"
-                                if entry["type"] == "directory"
-                                else f" [{entry['size']} bytes]"
-                            )
-                            for entry in entries
-                        ]
-                    )
-                    result_output += (
-                        f"\n--- Contents of directory {path} ---\n{entries_text}\n---\n"
-                    )
-
-                elif action == "search":
-                    pattern = result.get("pattern", "")
-                    matches = result.get("matches", [])
-                    matches_text = "\n".join([f"- {match}" for match in matches])
-                    result_output += f"\n--- Search results for '{pattern}' in {path} ---\n{matches_text}\n---\n"
-
-                elif action == "write":
-                    result_output += f"\n[Successfully wrote to file {path}]\n"
-
-                elif action == "pwd":
-                    current_dir = result.get("current_dir", "")
-                    result_output += (
-                        f"\n--- Current working directory ---\n{current_dir}\n---\n"
-                    )
-
-                elif action == "grep":
-                    pattern = result.get("pattern", "")
-                    matches = result.get("matches", [])
-                    if matches:
-                        matches_text = "\n".join(
-                            [
-                                f"- {match['file']}:{match['line']}: {match['content']}"
-                                for match in matches
-                            ]
-                        )
-                        result_output += f"\n--- Grep results for '{pattern}' in {path} ---\n{matches_text}\n---\n"
-                    else:
-                        result_output += f"\n--- No grep matches for '{pattern}' in {path} ---\n---\n"
-
-            # Add this batch of results to the conversation
-            full_response_parts.append(result_output)
-
-            # Print the file results
-            if result_output:
-                print(f"\n\nFile operation results (iteration {iteration_count}):")
-                print(result_output)
-
-            # Build comprehensive context with all previous responses and results
-            context_so_far = "\n\n".join(full_response_parts)
-
-            # Generate a continuation with the context from file operations
-            print(
-                f"{Colors.BG_YELLOW}{Colors.BOLD}DEBUG: Generating continuation with file operation results (iteration {iteration_count}){Colors.ENDC}"
-            )
-
-            # Create recursive continuation prompt that includes:
-            # 1. Original prompt
-            # 2. All previous responses and file operation results
-            # 3. Request to continue the analysis with potential for more file operations
-            continuation_prompt = f"""{prompt}
-
-AI: {context_so_far}
-
-[System Message]
-Now that you have the file information you requested, please continue your analysis and complete your response. 
-Incorporate the file information provided above. Don't repeat what you've already said, just continue where you left off.
-You can use more file commands if needed for additional information.
-"""
-
-            # Get continuation from the model and stream it to the user in real-time
-            print(
-                f"{Colors.YELLOW}Getting continuation from model (iteration {iteration_count})...{Colors.ENDC}"
-            )
-            print(f"\nContinuation (iteration {iteration_count}):")
-
-            # Use streaming for the continuation to provide real-time feedback
-            continuation = self._generate_raw_response(
-                continuation_prompt, system_prompt, stream=True
-            )
-
-            # Update for the next iteration
-            current_response = continuation
-            full_response_parts.append(continuation)
-
-        # Join all parts to create the complete response
-        full_response = "\n\n".join(full_response_parts)
-
-        # Log completion
-        if iteration_count >= max_iterations:
-            warning = f"\n\n[WARNING: Reached maximum iteration limit ({max_iterations}). Some file commands might not have been processed.]"
-            full_response += warning
-            print(f"{Colors.BG_RED}{Colors.BOLD}{warning}{Colors.ENDC}")
-
-        print(
-            f"{Colors.BG_YELLOW}{Colors.BOLD}DEBUG: Completed full response after {iteration_count} iterations ({len(full_response)} chars){Colors.ENDC}"
-        )
-        return full_response
+        # Get response with interactive command detection and execution
+        response = self._generate_raw_response(prompt, system_prompt, stream)
+        
+        return response
 
     def _estimate_tokens(self, text: str) -> int:
         """Estimate the number of tokens in a text string
@@ -790,10 +859,9 @@ You can use more file commands if needed for additional information.
         This method:
         1. Records the user message in conversation history
         2. Formats the entire conversation history for the LLM
-        3. Generates a response that can include file commands
-        4. Processes those file commands and gets a continuation
-        5. Returns a full response with file operation results and continuation
-
+        3. Generates a response with real-time MCP command detection and execution
+        4. Returns a full response with all command results embedded
+        
         Special commands:
         - /status: Show current context status
         - /prune [n]: Prune history to last n exchanges (default: 5)
@@ -878,11 +946,7 @@ You can use more file commands if needed for additional information.
             f"{Colors.CYAN}Formatted message length: {len(formatted_messages)} characters{Colors.ENDC}"
         )
 
-        # Generate a response - this will now:
-        # 1. Get the LLM's raw response
-        # 2. Extract and execute any file commands in that response
-        # 3. Generate a continuation with the file operation results
-        # 4. Return the full response (initial + file results + continuation)
+        # Generate a response with real-time command detection
         print(f"{Colors.BG_CYAN}{Colors.BOLD}DEBUG: Generating response{Colors.ENDC}")
 
         # We pass None for system_prompt since we already included it in formatted_messages
@@ -892,9 +956,9 @@ You can use more file commands if needed for additional information.
             f"{Colors.BG_CYAN}{Colors.BOLD}DEBUG: Appending assistant response to history ({len(response)} chars){Colors.ENDC}"
         )
 
-        # Clean the response for history by separating any file operation results from the LLM's response
-        # This prevents file operation results from being included in future prompts
-        # Extract the LLM's parts (initial response and continuation) and join them
+        # Clean the response for history by separating any file operation results
+        # Extract all command results from the response to avoid storing them in history
+        cleaned_response = response
         if (
             "--- Content of " in response
             or "--- Contents of directory " in response
@@ -923,10 +987,7 @@ You can use more file commands if needed for additional information.
             print(
                 f"{Colors.CYAN}Cleaned response for history ({len(cleaned_response)} chars){Colors.ENDC}"
             )
-        else:
-            # No file operations found, use the full response
-            cleaned_response = response
-
+        
         # Append assistant response to history (cleaned version without file operations)
         self.conversation_history.append(
             {"role": "assistant", "content": cleaned_response}
@@ -976,36 +1037,20 @@ CRITICAL REQUIREMENTS FOR COMMANDS:
 - Use proper XML syntax - each tag must be properly closed
 - For write commands, place the content between opening and closing tags
 - Pattern attributes must be enclosed in quotes
-- These commands will be detected, executed, and you'll receive the results
+- These commands will be detected and executed in real-time as you generate them
 - DO NOT hallucinate or invent the output of these commands
 
 COMMAND EXECUTION WORKFLOW:
-1. You issue one or more file commands in XML format
-2. You MUST END YOUR RESPONSE immediately after issuing commands
-3. The system will detect these commands, execute them, and return actual results
-4. You will receive these results as input in your next context window
-5. You can then analyze these real results and/or issue more commands
-
-STOP AND WAIT REQUIREMENT:
-- After issuing any MCP filesystem commands, you MUST STOP your response IMMEDIATELY
-- NEVER continue writing after issuing commands, as the commands need to execute first
-- NEVER attempt to predict, simulate or hallucinate command results
-- NEVER make up content that would be returned by file operations
-- NEVER include fake file contents, directory listings, or search results
-- The system will execute your commands and provide the actual results
+1. When you issue an MCP filesystem command, your generation will be immediately interrupted
+2. The command will be executed and the results will be shown
+3. You will then continue your response incorporating the command results
+4. You can use multiple commands throughout your response as needed
 
 ANTI-HALLUCINATION GUIDELINES:
 - You have NO knowledge of file contents until you read them with commands
 - You have NO knowledge of directory structures until you list them
-- DO NOT continue your analysis until you receive actual results from commands
-- If you feel compelled to guess what's in a file, STOP and issue a command to read it instead
+- If you feel compelled to guess what's in a file, issue a command to read it instead
 - If you don't know what's in a directory, issue a list command first
-
-RESPONSE STRUCTURE:
-- Initial response: Introduce what you're doing and include ONE file command, then STOP
-- After receiving results: Provide analysis and/or issue more commands, then STOP
-- Always continue where you left off without repeating information
-- Once file structure is known, you may issue multiple related commands in one response, then STOP
 
 EXAMPLE OF CORRECT USAGE:
 "I'll start by determining the current working directory to establish our absolute base path:
@@ -1014,28 +1059,33 @@ EXAMPLE OF CORRECT USAGE:
     <pwd />
 </mcp:filesystem>"
 
-[SYSTEM EXECUTES THE COMMAND AND RETURNS ACTUAL RESULTS TO YOU]
+[YOUR GENERATION IS INTERRUPTED, COMMAND IS EXECUTED, AND RESULTS ARE SHOWN]
 
 "Now that I know we're working in /home/user/project, I'll check the main implementation file and project structure:
 
 <mcp:filesystem>
     <read path="/home/user/project/main.py" />
+</mcp:filesystem>"
+
+[YOUR GENERATION IS INTERRUPTED, COMMAND IS EXECUTED, AND RESULTS ARE SHOWN]
+
+"I see this is a Flask application. Let me look at the directory structure:
+
+<mcp:filesystem>
     <list path="/home/user/project" />
 </mcp:filesystem>"
 
-[SYSTEM EXECUTES THESE COMMANDS AND RETURNS ACTUAL RESULTS TO YOU]
+[YOUR GENERATION IS INTERRUPTED, COMMAND IS EXECUTED, AND RESULTS ARE SHOWN]
 
-"Based on the code in main.py and the project structure I've just examined, I can see this is a Flask application. Let me examine the model implementation and configuration files:
+"Now I'll examine the model implementation files:
 
 <mcp:filesystem>
     <read path="/home/user/project/models/user.py" />
-    <read path="/home/user/project/config/settings.py" />
-    <grep path="/home/user/project" pattern="database" />
 </mcp:filesystem>"
 
-[SYSTEM EXECUTES THESE COMMANDS AND RETURNS ACTUAL RESULTS TO YOU]
+[YOUR GENERATION IS INTERRUPTED, COMMAND IS EXECUTED, AND RESULTS ARE SHOWN]
 
-"Now I understand how the components work together. According to the files I've read, the system uses SQLAlchemy for database access with the following configuration..."
+"Now I understand how the components work together. According to the files I've read, the system uses SQLAlchemy for database access..."
 """
 
     # Create an OllamaAgent with system prompt directly initialized
@@ -1049,10 +1099,10 @@ EXAMPLE OF CORRECT USAGE:
     # Interactive loop
     print("Coding Agent with File System Access initialized. Type 'exit' to quit.")
     print(
-        "\nIMPORTANT: File commands are detected in the AI's responses using XML format."
+        "\nIMPORTANT: File commands are now detected and executed in real-time using XML syntax."
     )
     print(
-        "The AI must follow these formats within <mcp:filesystem> tags:"
+        "The AI uses these formats within <mcp:filesystem> tags:"
     )
     print("  <read path=\"/path/to/file\" />")
     print("  <list path=\"/path/to/dir\" />")
@@ -1062,23 +1112,20 @@ EXAMPLE OF CORRECT USAGE:
     print("  <grep path=\"/path/to/dir\" pattern=\"grep pattern\" />")
     
     print("\nIMPORTANT WORKFLOW:")
-    print("1. The AI will issue file commands and STOP its response")
-    print("2. The system executes these commands and returns REAL results")
-    print("3. The AI then continues based on the ACTUAL output")
+    print("1. When the AI uses a command, generation is immediately interrupted")
+    print("2. The system executes the command and shows REAL results")
+    print("3. The AI then continues its response incorporating the results")
     print("4. This prevents hallucination as the AI only works with real data")
-    print("5. If the AI tries to continue writing after commands, it's a bug!")
+    print("5. The AI can use multiple commands throughout its response")
     
     print("\nNEW FEATURES:")
     print(
-        "1. XML-based command syntax for more robust parsing"
+        "1. Real-time XML command detection and execution"
     )
-    print("2. Multi-step responses: The AI can issue file commands, analyze results,")
-    print("   then issue more file commands in its continuations as needed")
-    print(
-        "3. Recursive command processing: Commands are processed in multiple iterations until"
-    )
-    print("   the response is complete with no more commands")
-    print("4. Context management: Use these commands to manage conversation context:")
+    print("2. Streaming token analysis for immediate command processing")
+    print("3. Seamless interruption and continuation of model generation")
+    print("4. Better handling of complex multi-line content")
+    print("5. Context management: Use these commands to manage conversation context:")
     print("   - /status - Show current context size and usage")
     print("   - /prune [n] - Remove older messages, keeping last n exchanges")
     print("   - /clear - Clear all conversation history")
@@ -1093,9 +1140,6 @@ EXAMPLE OF CORRECT USAGE:
         "If context gets too large, the system will warn you and provide options to manage it."
     )
     print()
-    print(f"{Colors.BG_RED}{Colors.BOLD}ANTI-HALLUCINATION REMINDER:{Colors.ENDC}")
-    print(f"{Colors.RED}If the AI tries to continue after issuing commands or tries to")
-    print(f"predict command results before they execute, please report this as a bug.{Colors.ENDC}")
 
     while True:
         user_input = input("\nUser: ")
