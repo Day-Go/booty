@@ -40,32 +40,11 @@ class AgentOrchestrator:
             system_prompt: Optional system prompt
             max_agents: Maximum number of concurrent transient agents
         """
-        # Initialize the main agent
-        self.main_agent = OllamaAgent(
-            model=model,
-            api_base=api_base,
-            mcp_fs_url=mcp_fs_url,
-            max_context_tokens=max_context_tokens,
-            system_prompt=system_prompt,
-        )
-        
-        # Initialize support components
-        self.task_planner = TaskPlanner()
-        self.context_manager = ContextManager(max_context_tokens=max_context_tokens)
-        
-        # Transient agent management
-        self.max_agents = max_agents
-        self.active_agents = {}  # task_id -> agent
-        self.transient_results = {}  # task_id -> result
-        
-        # Thread management
-        self.executor = ThreadPoolExecutor(max_workers=max_agents)
-        self.result_queue = Queue()
-        
         # Configuration
         self.model = model
         self.api_base = api_base
         self.mcp_fs_url = mcp_fs_url
+        self.max_agents = max_agents
         
         # Default system prompts
         self.main_agent_prompt = system_prompt or (
@@ -80,8 +59,32 @@ class AgentOrchestrator:
             "Avoid unnecessary explanations and focus on delivering exactly what was requested."
         )
         
+        print(f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Initializing{Colors.ENDC}")
+        
+        # Initialize the main agent
+        self.main_agent = OllamaAgent(
+            model=model,
+            api_base=api_base,
+            mcp_fs_url=mcp_fs_url,
+            max_context_tokens=max_context_tokens,
+            system_prompt=self.main_agent_prompt,
+            agent_id="MAIN_AGENT"
+        )
+        
+        # Initialize support components
+        self.task_planner = TaskPlanner()
+        self.context_manager = ContextManager(max_context_tokens=max_context_tokens)
+        
+        # Transient agent management
+        self.active_agents = {}  # task_id -> agent
+        self.transient_results = {}  # task_id -> result
+        
+        # Thread management
+        self.executor = ThreadPoolExecutor(max_workers=max_agents)
+        self.result_queue = Queue()
+        
         print(
-            f"{Colors.BG_BLUE}{Colors.BOLD}AGENT ORCHESTRATOR: Initialized with "
+            f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Initialized with "
             f"{max_context_tokens} max tokens and {max_agents} max concurrent agents{Colors.ENDC}"
         )
         
@@ -103,7 +106,7 @@ class AgentOrchestrator:
             Generated response
         """
         print(
-            f"{Colors.BG_BLUE}{Colors.BOLD}AGENT ORCHESTRATOR: Processing chat request{Colors.ENDC}"
+            f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Processing chat request{Colors.ENDC}"
         )
         
         # Handle special commands
@@ -116,13 +119,16 @@ class AgentOrchestrator:
         # If simple request, just pass to main agent
         if not request_analysis["requires_planning"]:
             print(
-                f"{Colors.BLUE}AGENT ORCHESTRATOR: Simple request detected, using main agent directly{Colors.ENDC}"
+                f"{Colors.BLUE}[ORCHESTRATOR] Simple request detected, using main agent directly{Colors.ENDC}"
             )
-            return self.main_agent.chat(message, system_prompt, stream)
+            print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[MAIN_AGENT] Activated{Colors.ENDC}")
+            response = self.main_agent.chat(message, system_prompt, stream)
+            print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[MAIN_AGENT] Complete{Colors.ENDC}")
+            return response
             
         # For complex requests, create a task plan
         print(
-            f"{Colors.BG_BLUE}{Colors.BOLD}AGENT ORCHESTRATOR: Complex request detected, creating task plan{Colors.ENDC}"
+            f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Complex request detected, creating task plan{Colors.ENDC}"
         )
         task_plan = self.task_planner.create_task_plan(message, request_analysis)
         
@@ -134,7 +140,7 @@ class AgentOrchestrator:
         # Prune context if too large
         if context_status == "critical":
             print(
-                f"{Colors.BG_RED}{Colors.BOLD}AGENT ORCHESTRATOR: Context critically large, pruning history{Colors.ENDC}"
+                f"{Colors.BG_RED}{Colors.BOLD}[ORCHESTRATOR] Context critically large, pruning history{Colors.ENDC}"
             )
             self.main_agent.conversation_history = self.context_manager.smart_prune_history(
                 self.main_agent.conversation_history, target_percentage=0.7
@@ -145,14 +151,17 @@ class AgentOrchestrator:
         
         if not delegatable_tasks:
             print(
-                f"{Colors.BLUE}AGENT ORCHESTRATOR: No delegatable tasks, using main agent{Colors.ENDC}"
+                f"{Colors.BLUE}[ORCHESTRATOR] No delegatable tasks, using main agent{Colors.ENDC}"
             )
             # Just use main agent if no tasks to delegate
-            return self.main_agent.chat(message, system_prompt, stream)
+            print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[MAIN_AGENT] Activated{Colors.ENDC}")
+            response = self.main_agent.chat(message, system_prompt, stream)
+            print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[MAIN_AGENT] Complete{Colors.ENDC}")
+            return response
             
         # Begin delegation process
         print(
-            f"{Colors.BG_BLUE}{Colors.BOLD}AGENT ORCHESTRATOR: Starting delegation of {len(delegatable_tasks)} tasks{Colors.ENDC}"
+            f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Starting delegation of {len(delegatable_tasks)} tasks{Colors.ENDC}"
         )
         
         # Preserve original request for main agent
@@ -175,11 +184,13 @@ class AgentOrchestrator:
         self.main_agent.conversation_history.pop()
         
         print(
-            f"{Colors.BG_BLUE}{Colors.BOLD}AGENT ORCHESTRATOR: All delegated tasks complete, processing with main agent{Colors.ENDC}"
+            f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] All delegated tasks complete, processing with main agent{Colors.ENDC}"
         )
         
         # Get main agent response with the enhanced message
+        print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[MAIN_AGENT] Activated with delegation results{Colors.ENDC}")
         response = self.main_agent.chat(enhanced_message, system_prompt, stream)
+        print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[MAIN_AGENT] Complete{Colors.ENDC}")
         
         return response
         
@@ -192,6 +203,8 @@ class AgentOrchestrator:
         Returns:
             Command response
         """
+        print(f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Handling special command: {message}{Colors.ENDC}")
+        
         command_parts = message.lower().split()
         command = command_parts[0]
         
@@ -220,12 +233,13 @@ class AgentOrchestrator:
             agent_info = []
             for task_id, agent in self.active_agents.items():
                 agent_info.append(
-                    f"- Agent {task_id}: {agent.task_description[:50]}... (Status: {agent.status})"
+                    f"- Agent {agent.agent_id}: {agent.task_description[:50]}... (Status: {agent.status})"
                 )
                 
             return "Active Transient Agents:\n" + "\n".join(agent_info)
             
         elif command == "/clear":
+            print(f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Clearing conversation history{Colors.ENDC}")
             cleared = self.main_agent.clear_history()
             self.transient_results = {}
             return f"Cleared {cleared} messages from conversation history and all transient agent results."
@@ -236,6 +250,7 @@ class AgentOrchestrator:
             if len(command_parts) > 1 and command_parts[1].isdigit():
                 keep = int(command_parts[1])
                 
+            print(f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Pruning history to last {keep} exchanges{Colors.ENDC}")
             pruned = self.main_agent.prune_history(keep)
             if pruned > 0:
                 return f"Pruned {pruned} messages from history, keeping last {keep} exchanges."
@@ -243,7 +258,11 @@ class AgentOrchestrator:
                 return f"No messages pruned. History already has {len(self.main_agent.conversation_history) // 2} exchanges."
                 
         # Forward other commands to main agent
-        return self.main_agent.chat(message)
+        print(f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Forwarding command to main agent{Colors.ENDC}")
+        print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[MAIN_AGENT] Activated for command handling{Colors.ENDC}")
+        response = self.main_agent.chat(message)
+        print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[MAIN_AGENT] Command handling complete{Colors.ENDC}")
+        return response
         
     def _delegate_tasks(
         self, tasks: List[Dict[str, Any]], original_request: str
@@ -271,7 +290,7 @@ class AgentOrchestrator:
         concurrent_tasks = min(len(tasks), self.max_agents)
         
         print(
-            f"{Colors.BG_BLUE}{Colors.BOLD}AGENT ORCHESTRATOR: Delegating {len(tasks)} tasks "
+            f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Delegating {len(tasks)} tasks "
             f"with {concurrent_tasks} concurrent agents{Colors.ENDC}"
         )
         
@@ -280,6 +299,10 @@ class AgentOrchestrator:
             # Submit all tasks to the executor
             for task in tasks:
                 task_id = task["task_id"]
+                
+                # Log agent creation
+                print(f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Creating agent for task {task_id}{Colors.ENDC}")
+                print(f"{Colors.BLUE}[ORCHESTRATOR] Task description: {task['description'][:100]}...{Colors.ENDC}")
                 
                 # Create a transient agent for this task
                 agent = TransientAgent(
@@ -299,7 +322,7 @@ class AgentOrchestrator:
                 task["status"] = "in_progress"
                 
                 print(
-                    f"{Colors.BLUE}AGENT ORCHESTRATOR: Submitting task {task_id} to thread pool{Colors.ENDC}"
+                    f"{Colors.BLUE}[ORCHESTRATOR] Submitting task {task_id} to thread pool{Colors.ENDC}"
                 )
                 
                 # Submit the task to the executor
@@ -323,12 +346,13 @@ class AgentOrchestrator:
                     results.append(result)
                     
                     print(
-                        f"{Colors.BG_BLUE}{Colors.BOLD}AGENT ORCHESTRATOR: Task {task_id} completed successfully{Colors.ENDC}"
+                        f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Task {task_id} completed successfully{Colors.ENDC}"
                     )
+                    print(f"{Colors.BLUE}[ORCHESTRATOR] Summary: {result['summary'][:100]}...{Colors.ENDC}")
                     
                 except Exception as e:
                     print(
-                        f"{Colors.BG_RED}{Colors.BOLD}AGENT ORCHESTRATOR: Task {task_id} failed: {str(e)}{Colors.ENDC}"
+                        f"{Colors.BG_RED}{Colors.BOLD}[ORCHESTRATOR] Task {task_id} failed: {str(e)}{Colors.ENDC}"
                     )
                     
                     # Update task status
@@ -348,12 +372,13 @@ class AgentOrchestrator:
                     results.append(error_result)
                     
                 finally:
-                    # Remove from active agents
+                    # Remove from active agents and log termination
                     if task_id in self.active_agents:
+                        print(f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Terminating agent for task {task_id}{Colors.ENDC}")
                         del self.active_agents[task_id]
                         
         print(
-            f"{Colors.BG_BLUE}{Colors.BOLD}AGENT ORCHESTRATOR: All {len(tasks)} tasks completed{Colors.ENDC}"
+            f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] All {len(tasks)} tasks completed{Colors.ENDC}"
         )
         
         return results

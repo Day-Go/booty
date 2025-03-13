@@ -8,7 +8,7 @@ import string
 # Add the src directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
-from tests.context_manager_for_testing import ContextManager
+from .context_manager_for_testing import ContextManager
 
 
 @pytest.fixture

@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 import re
-from tests.context_manager_for_testing import ContextManager
+from .context_manager_for_testing import ContextManager
 
 
 class TestContextManager:

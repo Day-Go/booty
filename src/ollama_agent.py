@@ -10,6 +10,7 @@ from typing import Dict, List, Any, Optional, Union, Tuple
 from terminal_utils import Colors
 from mcp_filesystem_client import MCPFilesystemClient
 from xml_parser import StreamingXMLParser
+from mcp_command_handler import MCPCommandHandler
 
 
 class OllamaAgent:
@@ -20,12 +21,20 @@ class OllamaAgent:
         mcp_fs_url="http://127.0.0.1:8000",
         max_context_tokens=32000,  # QwQ model has 32k context window
         system_prompt=None,
+        agent_id="MAIN_AGENT",
     ):
         self.model = model
         self.api_base = api_base
         self.conversation_history = []
-        # Initialize MCP filesystem client
+        self.agent_id = agent_id
+        
+        # Initialize MCP command handler
+        self.mcp_handler = MCPCommandHandler(agent_id=agent_id, mcp_fs_url=mcp_fs_url)
+        self.mcp_handler.set_debug_colors(Colors.MAGENTA, Colors.BG_MAGENTA)
+        
+        # For backward compatibility - these will be removed in a future refactoring
         self.fs_client = MCPFilesystemClient(base_url=mcp_fs_url)
+        
         # Track tool usage
         self.tool_usage = []
 
@@ -35,6 +44,8 @@ class OllamaAgent:
         self.token_estimate_ratio = (
             4  # Approximation: 1 token ≈ 4 characters for English text
         )
+        
+        print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[{self.agent_id}] Agent initialized{Colors.ENDC}")
 
     def _extract_file_commands(self, message: str) -> List[Dict[str, Any]]:
         """Extract file operation commands from a message using XML format"""
@@ -353,275 +364,34 @@ class OllamaAgent:
         If stream=True, it will stream the response to the console in real-time
         and handle MCP commands on-the-fly.
         """
-        print(
-            f"\n{Colors.BG_YELLOW}{Colors.BOLD}DEBUG: Getting raw response from Ollama{Colors.ENDC}"
-        )
-        print(f"{Colors.YELLOW}Prompt length: {len(prompt)} characters{Colors.ENDC}")
-
+        print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[{self.agent_id}] Generating response{Colors.ENDC}")
+        
         endpoint = f"{self.api_base}/api/generate"
 
         # Build the request payload
         payload = {
             "model": self.model,
             "prompt": prompt,
-            "stream": True,
-        }  # Always stream for command detection
+            "stream": True,  # Always stream for command detection
+        }
 
         # Add system prompt if provided
         if system_prompt:
             payload["system"] = system_prompt
 
         # Make the request to Ollama API
-        print(f"{Colors.YELLOW}Making request to Ollama API...{Colors.ENDC}")
-
-        # Initialize the improved streaming parser with debug mode enabled
-        xml_parser = StreamingXMLParser(debug_mode=True)
-
-        # Initialize response tracking
-        full_response = ""
-        accumulated_tokens = ""  # For fallback detection
-        should_continue = True
-        has_completed = False
-
-        # Track if we need to continue generation after command execution
-        need_continuation = False
-
-        # Maximum size before checking accumulated tokens for fallback detection
-        accumulated_tokens_max = 500
-
-        while should_continue:
-            # Make the API request
-            print(
-                f"{Colors.YELLOW}Streaming response with improved command detection...{Colors.ENDC}"
-            )
-            response = requests.post(endpoint, json=payload, stream=True)
-            response.raise_for_status()
-
-            if not need_continuation:
-                print("Response: ", end="", flush=True)
-
-            # Process the streaming response token by token
-            for line in response.iter_lines():
-                if not line:
-                    continue
-
-                try:
-                    json_response = json.loads(line)
-                    response_part = json_response.get("response", "")
-
-                    # Print token to user if we're not in continuation mode
-                    if stream:
-                        print(response_part, end="", flush=True)
-
-                    # Check if the model is done generating
-                    if json_response.get("done", False):
-                        has_completed = True
-                        if stream:
-                            print()  # Add newline
-                        break
-
-                    # Add token to response
-                    full_response += response_part
-                    accumulated_tokens += response_part
-
-                    # Process token with enhanced XML parser
-                    if xml_parser.feed(response_part):
-                        # Complete MCP command detected - interrupt generation
-                        print(
-                            f"\n{Colors.BG_MAGENTA}{Colors.BOLD}MCP COMMAND DETECTED - INTERRUPTING GENERATION{Colors.ENDC}"
-                        )
-
-                        # Get the complete command
-                        mcp_command = xml_parser.get_command()
-                        print(
-                            f"{Colors.MAGENTA}Complete command: {mcp_command}{Colors.ENDC}"
-                        )
-
-                        # Extract file commands from the XML
-                        commands = self._extract_file_commands(mcp_command)
-
-                        # Reset accumulated tokens after successful detection
-                        accumulated_tokens = ""
-
-                        if commands:
-                            # Execute the commands
-                            print(
-                                f"{Colors.BG_BLUE}{Colors.BOLD}EXECUTING MCP COMMANDS{Colors.ENDC}"
-                            )
-                            results = self._execute_file_commands(commands)
-
-                            # Format the results for display
-                            result_output = self._format_command_results(results)
-
-                            # Add results to full response
-                            full_response += "\n" + result_output
-
-                            if stream:
-                                print(f"\n{result_output}")
-
-                            # Set up for continuation
-                            need_continuation = True
-
-                            # Update the prompt with results for continuation
-                            prompt = f"{prompt}\n\nAI: {full_response}\n\n[System Message]\nNow that you have the requested information, please continue your response incorporating this information."
-                            payload = {
-                                "model": self.model,
-                                "prompt": prompt,
-                                "stream": True,
-                            }
-                            if system_prompt:
-                                payload["system"] = system_prompt
-
-                            # Reset the XML parser for the continuation
-                            xml_parser.reset()
-
-                            # Break out of the token loop to start a new request
-                            break
-
-                    # Fallback: Check accumulated tokens periodically for complete commands
-                    # This helps catch commands that might be missed by token-by-token parsing
-                    if len(accumulated_tokens) > accumulated_tokens_max:
-                        if (
-                            "<mcp:filesystem>" in accumulated_tokens
-                            and "</mcp:filesystem>" in accumulated_tokens
-                        ):
-                            print(
-                                f"\n{Colors.BG_YELLOW}{Colors.BOLD}CHECKING ACCUMULATED TOKENS FOR COMMANDS{Colors.ENDC}"
-                            )
-
-                            # Use regex to find complete MCP blocks
-                            mcp_blocks = re.findall(
-                                r"<mcp:filesystem>.*?</mcp:filesystem>",
-                                accumulated_tokens,
-                                re.DOTALL,
-                            )
-
-                            if mcp_blocks:
-                                print(
-                                    f"\n{Colors.BG_MAGENTA}{Colors.BOLD}MCP COMMAND FOUND IN ACCUMULATED TOKENS - INTERRUPTING{Colors.ENDC}"
-                                )
-                                mcp_command = mcp_blocks[0]
-                                print(
-                                    f"{Colors.MAGENTA}Complete command from accumulated: {mcp_command}{Colors.ENDC}"
-                                )
-
-                                # Extract file commands from the XML
-                                commands = self._extract_file_commands(mcp_command)
-
-                                # Reset accumulated tokens after successful detection
-                                accumulated_tokens = ""
-
-                                if commands:
-                                    # Execute the commands
-                                    print(
-                                        f"{Colors.BG_BLUE}{Colors.BOLD}EXECUTING MCP COMMANDS{Colors.ENDC}"
-                                    )
-                                    results = self._execute_file_commands(commands)
-
-                                    # Format the results for display
-                                    result_output = self._format_command_results(
-                                        results
-                                    )
-
-                                    # Add results to full response
-                                    full_response += "\n" + result_output
-
-                                    if stream:
-                                        print(f"\n{result_output}")
-
-                                    # Set up for continuation
-                                    need_continuation = True
-
-                                    # Update the prompt with results for continuation
-                                    prompt = f"{prompt}\n\nAI: {full_response}\n\n[System Message]\nNow that you have the requested information, please continue your response incorporating this information."
-                                    payload = {
-                                        "model": self.model,
-                                        "prompt": prompt,
-                                        "stream": True,
-                                    }
-                                    if system_prompt:
-                                        payload["system"] = system_prompt
-
-                                    # Reset the XML parser for the continuation
-                                    xml_parser.reset()
-
-                                    # Break out of the token loop to start a new request
-                                    break
-
-                        # If we didn't find a command, keep a sliding window of tokens
-                        if len(accumulated_tokens) > accumulated_tokens_max * 2:
-                            accumulated_tokens = accumulated_tokens[
-                                -accumulated_tokens_max:
-                            ]
-
-                except Exception as e:
-                    print(
-                        f"\n{Colors.BG_RED}{Colors.BOLD}ERROR PROCESSING TOKEN: {str(e)}{Colors.ENDC}"
-                    )
-                    # Continue with next token
-
-            # Final check for commands in the complete response before finishing
-            if (
-                has_completed
-                and not need_continuation
-                and "<mcp:filesystem>" in full_response
-                and "</mcp:filesystem>" in full_response
-            ):
-                print(
-                    f"\n{Colors.BG_YELLOW}{Colors.BOLD}FINAL CHECK FOR MISSED COMMANDS{Colors.ENDC}"
-                )
-                mcp_blocks = re.findall(
-                    r"<mcp:filesystem>.*?</mcp:filesystem>", full_response, re.DOTALL
-                )
-
-                if mcp_blocks:
-                    print(
-                        f"\n{Colors.BG_MAGENTA}{Colors.BOLD}FOUND {len(mcp_blocks)} MCP COMMANDS IN FINAL RESPONSE{Colors.ENDC}"
-                    )
-                    all_results = ""
-
-                    for idx, mcp_command in enumerate(mcp_blocks):
-                        print(
-                            f"{Colors.MAGENTA}Processing command {idx + 1}: {mcp_command}{Colors.ENDC}"
-                        )
-
-                        # Extract file commands from the XML
-                        commands = self._extract_file_commands(mcp_command)
-
-                        if commands:
-                            # Execute the commands
-                            print(
-                                f"{Colors.BG_BLUE}{Colors.BOLD}EXECUTING MCP COMMAND {idx + 1}{Colors.ENDC}"
-                            )
-                            results = self._execute_file_commands(commands)
-
-                            # Format the results for display
-                            result_output = self._format_command_results(results)
-                            all_results += result_output
-
-                    if all_results:
-                        print(
-                            f"\n{Colors.BG_GREEN}{Colors.BOLD}APPENDING ALL RESULTS TO RESPONSE{Colors.ENDC}"
-                        )
-                        full_response += "\n\n" + all_results
-
-            # If the model finished generating and we don't need continuation, we're done
-            if has_completed and not need_continuation:
-                should_continue = False
-
-            # If we need to continue after a command, we'll make another request
-            if need_continuation:
-                # Reset for next cycle
-                need_continuation = False
-                print(
-                    f"\n{Colors.BG_BLUE}{Colors.BOLD}CONTINUING GENERATION WITH COMMAND RESULTS{Colors.ENDC}\n"
-                )
-
-        # Final response
-        print(
-            f"{Colors.YELLOW}Response complete ({len(full_response)} characters){Colors.ENDC}"
+        response = requests.post(endpoint, json=payload, stream=True)
+        response.raise_for_status()
+        
+        # Process the streaming response and handle MCP commands
+        return self.mcp_handler.process_streaming_response(
+            response.iter_lines(),
+            self.model,
+            self.api_base,
+            prompt,
+            system_prompt,
+            stream
         )
-        return full_response
 
     def generate(self, prompt, system_prompt=None, stream=True):
         """Generate a response using Ollama API with real-time command detection
@@ -905,3 +675,4 @@ class OllamaAgent:
 
         # Return the full response to the user (with file operations)
         return response
+

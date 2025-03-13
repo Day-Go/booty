@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 import re
 import sys
 import io
-from tests.context_manager_for_testing import ContextManager
+from .context_manager_for_testing import ContextManager
 
 
 class TestContextManagerIntegration:

@@ -189,3 +189,27 @@ class TestStreamingXMLParser:
         self.parser.feed(command)
             
         assert self.parser.get_command() == command
+        
+    def test_xml_in_code_block(self):
+        """Test extracting XML commands from Markdown code blocks."""
+        # Command wrapped in a code block with xml language specifier
+        code_block = "```xml\n<mcp:filesystem><read path='/test.txt' /></mcp:filesystem>\n```"
+        
+        # Feed the code block in one go
+        self.parser.feed(code_block)
+        
+        # The parser should detect the command inside the code block
+        command = self.parser.get_command()
+        assert "<read path='/test.txt' />" in command
+        
+    def test_xml_in_unspecified_code_block(self):
+        """Test extracting XML commands from unspecified language code blocks."""
+        # Command wrapped in a code block without language specifier
+        code_block = "```\n<mcp:filesystem><list path='/' /></mcp:filesystem>\n```"
+        
+        # Feed the code block in one go
+        self.parser.feed(code_block)
+        
+        # The parser should detect the command inside the code block
+        command = self.parser.get_command()
+        assert "<list path='/' />" in command
