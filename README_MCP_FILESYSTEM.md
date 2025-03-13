@@ -209,3 +209,17 @@ The XML-based command format provides several benefits:
 ---
 
 This implementation provides a robust filesystem interface for language models via the MCP protocol with an XML-based command structure, allowing controlled access to the filesystem while maintaining security boundaries and improving parsing reliability.
+
+## Testing the MCP Filesystem
+
+The MCP Filesystem components are covered by comprehensive tests, including end-to-end tests and contract tests. See the `/tests/e2e/mcp_filesystem/` directory for test implementations.
+
+### Test-Source Coupling
+
+To ensure tests remain synchronized with the MCP Filesystem implementation:
+
+1. **Contract Tests**: Tests in `/tests/e2e/mcp_filesystem/test_contract_coupling.py` verify that mock implementations match real implementations
+2. **Automated Updates**: When MCP Filesystem code changes, run `python /tools/update_mocks.py` to update mock implementations
+3. **Pre-commit Verification**: Git hooks ensure tests are synchronized with source code before committing
+
+For detailed information on the test-source coupling framework, see [/tests/TEST_COUPLING.md](/tests/TEST_COUPLING.md).

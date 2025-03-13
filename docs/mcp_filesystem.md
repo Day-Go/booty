@@ -167,3 +167,23 @@ Get detailed file/directory metadata
 List all directories the server is allowed to access
 - No input required
 - Returns directories that this server can read/write from
+
+## Testing
+
+The MCP Filesystem implementation includes comprehensive testing to ensure reliability and correctness. The testing framework focuses on maintaining tight coupling between tests and source code to prevent tests from becoming outdated as the codebase evolves.
+
+### Test-Source Coupling Framework
+
+The test-source coupling framework includes:
+
+1. **Contract Tests**: Tests in `/tests/e2e/mcp_filesystem/test_contract_coupling.py` verify that mock implementations match real implementations, ensuring mocks used in tests accurately reflect the actual code behavior.
+
+2. **Mock Updaters**: When the MCP Filesystem implementation changes, mock implementations are automatically updated using the tools in `/tools/update_mocks.py`.
+
+3. **Resilient Test Fixtures**: The `resilient_e2e_test` decorator in `/tests/e2e/mcp_filesystem/test_fixtures.py` makes tests more robust against minor API changes by dynamically adapting to the current implementation.
+
+4. **Pre-commit Verification**: Git hooks prevent committing changes that break the coupling between tests and source code.
+
+5. **Test Dependency Analysis**: AST-based analysis identifies which tests depend on which source files, making it easier to understand the impact of code changes.
+
+For detailed information on the test-source coupling framework, see [/tests/TEST_COUPLING.md](/tests/TEST_COUPLING.md).

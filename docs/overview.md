@@ -13,6 +13,8 @@ Key Specifications:
 - Knowledge of Godot 4's built-in classes, methods, and design patterns
 - Capability to assist with both 2D and 3D game implementation
 - Support for debugging common Godot-specific issues
+- Robust test-source coupling mechanisms to ensure test validity
+- Contract testing to verify mock and real implementation compatibility
 
 ## MCP Filesystem Interface
 
@@ -35,3 +37,16 @@ Example:
 ```
 
 The primary use case will be assisting in game development projects using the Godot 4 engine, including generating code snippets, explaining engine concepts, suggesting optimizations, and helping implement game mechanics following Godot best practices.
+
+## Test-Source Coupling Framework
+
+The project implements a comprehensive test-source coupling framework to ensure tests remain synchronized with the code they verify. This framework includes:
+
+- **Contract Testing**: Verifies that mock implementations match real implementation interfaces
+- **Automated Test Updates**: Tools that automatically update mock implementations when source code changes
+- **File Change Monitoring**: Real-time detection of source code changes that might affect tests
+- **Test Dependency Analysis**: AST-based analysis to identify which tests depend on which source files
+- **Pre-commit Verification**: Git hooks that prevent committing changes that break test-source coupling
+- **Resilient Test Fixtures**: Test fixtures that can adapt to minor API changes
+
+These mechanisms work together to prevent tests from becoming decoupled from source code, ensuring valid test results even as the codebase evolves. Detailed documentation is available in `/tests/TEST_COUPLING.md`.

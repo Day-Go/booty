@@ -1,7 +1,7 @@
 # CLAUDE.md - Guidelines for LLM Project
 
 ## Commands
-- Activate virtual environment: `source ~/venvs/bin/activate`
+- Activate virtual environment: `source ~/pytorch-env/bin/activate`
 - Run Ollama inference: `python src/ollama_inference.py`
 - Run legacy QwQ model: `python legacy/run_qwq_4bit.py`
 - Lint code: `flake8 src/ legacy/ tests/`
