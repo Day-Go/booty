@@ -13,6 +13,7 @@ import sys
 import inspect
 import functools
 import re
+import builtins
 from typing import Callable, Dict, Any, Set, List, Optional
 from unittest.mock import patch
 
@@ -23,7 +24,7 @@ from src.mcp_filesystem_client import MCPFilesystemClient
 from src.mcp_command_handler import MCPCommandHandler
 from src.xml_parser import StreamingXMLParser
 
-from test_helpers import mock_filesystem_request
+from tests.e2e.mcp_filesystem.test_helpers import mock_filesystem_request
 
 
 @pytest.fixture

@@ -20,7 +20,7 @@ from src.mcp_command_handler import MCPCommandHandler
 from src.xml_parser import StreamingXMLParser
 
 # Import our test mocks
-from test_mcp_filesystem_e2e import MockMCPCommandHandler, MockStreamingXMLParser
+from tests.e2e.mcp_filesystem.test_mcp_filesystem_e2e import MockMCPCommandHandler, MockStreamingXMLParser
 
 
 def test_mock_command_handler_interface():

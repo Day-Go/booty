@@ -1,7 +1,14 @@
 """XML parser for MCP commands."""
 
 import re
-from terminal_utils import Colors
+
+# Use try-except for imports to handle both direct module execution and package imports
+try:
+    # Try relative import first (for when running as a module)
+    from terminal_utils import Colors
+except ImportError:
+    # Fall back to absolute import (for when imported from tests)
+    from src.terminal_utils import Colors
 
 
 class StreamingXMLParser:

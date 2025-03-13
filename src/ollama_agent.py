@@ -27,14 +27,14 @@ class OllamaAgent:
         self.api_base = api_base
         self.conversation_history = []
         self.agent_id = agent_id
-        
+
         # Initialize MCP command handler
         self.mcp_handler = MCPCommandHandler(agent_id=agent_id, mcp_fs_url=mcp_fs_url)
         self.mcp_handler.set_debug_colors(Colors.MAGENTA, Colors.BG_MAGENTA)
-        
+
         # For backward compatibility - these will be removed in a future refactoring
         self.fs_client = MCPFilesystemClient(base_url=mcp_fs_url)
-        
+
         # Track tool usage
         self.tool_usage = []
 
@@ -44,8 +44,10 @@ class OllamaAgent:
         self.token_estimate_ratio = (
             4  # Approximation: 1 token ≈ 4 characters for English text
         )
-        
-        print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[{self.agent_id}] Agent initialized{Colors.ENDC}")
+
+        print(
+            f"{Colors.BG_MAGENTA}{Colors.BOLD}[{self.agent_id}] Agent initialized{Colors.ENDC}"
+        )
 
     def _extract_file_commands(self, message: str) -> List[Dict[str, Any]]:
         """Extract file operation commands from a message using XML format"""
@@ -364,8 +366,10 @@ class OllamaAgent:
         If stream=True, it will stream the response to the console in real-time
         and handle MCP commands on-the-fly.
         """
-        print(f"{Colors.BG_MAGENTA}{Colors.BOLD}[{self.agent_id}] Generating response{Colors.ENDC}")
-        
+        print(
+            f"{Colors.BG_MAGENTA}{Colors.BOLD}[{self.agent_id}] Generating response{Colors.ENDC}"
+        )
+
         endpoint = f"{self.api_base}/api/generate"
 
         # Build the request payload
@@ -373,6 +377,7 @@ class OllamaAgent:
             "model": self.model,
             "prompt": prompt,
             "stream": True,  # Always stream for command detection
+            "options": {"num_ctx": self.max_context_tokens},
         }
 
         # Add system prompt if provided
@@ -382,7 +387,7 @@ class OllamaAgent:
         # Make the request to Ollama API
         response = requests.post(endpoint, json=payload, stream=True)
         response.raise_for_status()
-        
+
         # Process the streaming response and handle MCP commands
         return self.mcp_handler.process_streaming_response(
             response.iter_lines(),
@@ -390,7 +395,7 @@ class OllamaAgent:
             self.api_base,
             prompt,
             system_prompt,
-            stream
+            stream,
         )
 
     def generate(self, prompt, system_prompt=None, stream=True):
@@ -675,4 +680,3 @@ class OllamaAgent:
 
         # Return the full response to the user (with file operations)
         return response
-

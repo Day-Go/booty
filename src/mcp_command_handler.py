@@ -4,9 +4,17 @@ import re
 import json
 from typing import Dict, List, Any, Optional, Tuple
 
-from terminal_utils import Colors
-from mcp_filesystem_client import MCPFilesystemClient
-from xml_parser import StreamingXMLParser
+# Use try-except for imports to handle both direct module execution and package imports
+try:
+    # Try relative imports first (for when running as a module)
+    from terminal_utils import Colors
+    from mcp_filesystem_client import MCPFilesystemClient
+    from xml_parser import StreamingXMLParser
+except ImportError:
+    # Fall back to absolute imports (for when imported from tests)
+    from src.terminal_utils import Colors
+    from src.mcp_filesystem_client import MCPFilesystemClient
+    from src.xml_parser import StreamingXMLParser
 
 
 class MCPCommandHandler:
@@ -353,6 +361,8 @@ class MCPCommandHandler:
         has_completed = False
         need_continuation = False
         command_count = 0
+        continuation_attempts = 0
+        max_continuation_attempts = 10  # Limit to prevent infinite loops
         
         # Maximum size before checking accumulated tokens for fallback detection
         accumulated_tokens_max = 500
@@ -407,8 +417,16 @@ class MCPCommandHandler:
                             # Format the results for display
                             result_output = self.format_command_results(results)
                             
-                            # Add results to full response
-                            full_response += "\n" + result_output
+                            # Keep track of command position before modifying full_response
+                            command_position = full_response.rfind("<mcp:filesystem>")
+                            
+                            # Replace the command with the result
+                            if command_position > 0:
+                                # Remove the command and replace with results
+                                full_response = full_response[:command_position].strip() + "\n\n" + result_output
+                            else:
+                                # Add results to full response (fallback)
+                                full_response += "\n" + result_output
                             
                             if stream:
                                 print(f"\n{result_output}")
@@ -416,11 +434,18 @@ class MCPCommandHandler:
                             # Set up for continuation
                             need_continuation = True
                             
-                            # Update the prompt with results for continuation
+                            # Update the prompt with results for continuation and explicit command data
+                            # Note that we've already replaced the command with results in full_response
+                            # We ensure both the command results and an explicit reminder are included
+                            
                             continuation_prompt = (
                                 f"{prompt}\n\nAI: {full_response}\n\n"
-                                f"[System Message]\nNow that you have the requested information, "
-                                f"please continue your response incorporating this information."
+                                f"[System Message]\nIMPORTANT: I executed your MCP command. "
+                                f"ONLY use the command results above, do not hallucinate or invent file structures. "
+                                f"Examine the file list or command output carefully before continuing. "
+                                f"Continue your analysis, examining these EXACT results, and run additional MCP commands "
+                                f"if needed. Complete the entire task without asking the user for permission to continue.\n\n"
+                                f"Command result summary: {result_output[:300]}...\n" 
                             )
                             
                             # Build the request payload for continuation
@@ -435,7 +460,16 @@ class MCPCommandHandler:
                             # Reset the XML parser for the continuation
                             xml_parser.reset()
                             
-                            self.debug_print("Making continuation request with command results", highlight=True)
+                            # Track continuation attempts
+                            continuation_attempts += 1
+                            
+                            if continuation_attempts > max_continuation_attempts:
+                                self.debug_print("REACHED MAXIMUM CONTINUATION ATTEMPTS - STOPPING", highlight=True)
+                                full_response += "\n\n[Reached maximum number of command executions. Please ask a follow-up question to continue.]"
+                                should_continue = False
+                                break
+                                
+                            self.debug_print(f"Making continuation request with command results (attempt {continuation_attempts}/{max_continuation_attempts})", highlight=True)
                             
                             # Make a new request for continuation
                             response = requests.post(endpoint, json=payload, stream=True)
@@ -479,8 +513,16 @@ class MCPCommandHandler:
                                     # Format the results for display
                                     result_output = self.format_command_results(results)
                                     
-                                    # Add results to full response
-                                    full_response += "\n" + result_output
+                                    # Keep track of command position before modifying full_response
+                                    command_position = full_response.rfind("<mcp:filesystem>")
+                                    
+                                    # Replace the command with the result
+                                    if command_position > 0:
+                                        # Remove the command and replace with results
+                                        full_response = full_response[:command_position].strip() + "\n\n" + result_output
+                                    else:
+                                        # Add results to full response (fallback)
+                                        full_response += "\n" + result_output
                                     
                                     if stream:
                                         print(f"\n{result_output}")
@@ -488,11 +530,18 @@ class MCPCommandHandler:
                                     # Set up for continuation
                                     need_continuation = True
                                     
-                                    # Update the prompt with results for continuation
+                                    # Update the prompt with results for continuation and explicit command data
+                                    # Note that we've already replaced the command with results in full_response
+                                    # We ensure both the command results and an explicit reminder are included
+                                    
                                     continuation_prompt = (
                                         f"{prompt}\n\nAI: {full_response}\n\n"
-                                        f"[System Message]\nNow that you have the requested information, "
-                                        f"please continue your response incorporating this information."
+                                        f"[System Message]\nIMPORTANT: I executed your MCP command. "
+                                        f"ONLY use the command results above, do not hallucinate or invent file structures. "
+                                        f"Examine the file list or command output carefully before continuing. "
+                                        f"Continue your analysis, examining these EXACT results, and run additional MCP commands "
+                                        f"if needed. Complete the entire task without asking the user for permission to continue.\n\n"
+                                        f"Command result summary: {result_output[:300]}...\n" 
                                     )
                                     
                                     # Build the request payload for continuation
@@ -507,7 +556,16 @@ class MCPCommandHandler:
                                     # Reset the XML parser for the continuation
                                     xml_parser.reset()
                                     
-                                    self.debug_print("Making continuation request with command results", highlight=True)
+                                    # Track continuation attempts
+                                    continuation_attempts += 1
+                                    
+                                    if continuation_attempts > max_continuation_attempts:
+                                        self.debug_print("REACHED MAXIMUM CONTINUATION ATTEMPTS - STOPPING", highlight=True)
+                                        full_response += "\n\n[Reached maximum number of command executions. Please ask a follow-up question to continue.]"
+                                        should_continue = False
+                                        break
+                                    
+                                    self.debug_print(f"Making continuation request with command results (attempt {continuation_attempts}/{max_continuation_attempts})", highlight=True)
                                     
                                     # Make a new request for continuation
                                     response = requests.post(endpoint, json=payload, stream=True)
@@ -526,9 +584,9 @@ class MCPCommandHandler:
                     # Continue with next token
                     
             # Check for commands in the complete response before finishing
+            # Important: process even if has_completed=False to handle incomplete responses with commands
             if (
-                has_completed
-                and not need_continuation
+                not need_continuation
                 and "<mcp:filesystem>" in full_response
                 and "</mcp:filesystem>" in full_response
             ):
@@ -557,7 +615,54 @@ class MCPCommandHandler:
                             
                     if all_results:
                         self.debug_print("APPENDING ALL RESULTS TO RESPONSE", highlight=True)
-                        full_response += "\n\n" + all_results
+                        # Replace the last command with results rather than just appending
+                        command_position = full_response.rfind("<mcp:filesystem>")
+                        if command_position > 0:
+                            # Remove the command and replace with results
+                            full_response = full_response[:command_position].strip() + "\n\n" + all_results
+                        else:
+                            # Add results to full response (fallback)
+                            full_response += "\n\n" + all_results
+                            
+                        # Set need_continuation flag to continue generation after command execution
+                        need_continuation = True
+                        
+                        # Update the prompt with results for continuation
+                        continuation_prompt = (
+                            f"{prompt}\n\nAI: {full_response}\n\n"
+                            f"[System Message]\nIMPORTANT: I executed your MCP command. "
+                            f"ONLY use the command results above, do not hallucinate or invent file structures. "
+                            f"Examine the file list or command output carefully before continuing. "
+                            f"Continue your analysis, examining these EXACT results, and run additional MCP commands "
+                            f"if needed. Complete the entire task without asking the user for permission to continue.\n\n"
+                            f"Command result summary: {all_results[:300]}...\n"
+                        )
+                        
+                        # Build the request payload for continuation
+                        payload = {
+                            "model": model,
+                            "prompt": continuation_prompt,
+                            "stream": True,
+                        }
+                        if system_prompt:
+                            payload["system"] = system_prompt
+                            
+                        # Reset the XML parser for the continuation
+                        xml_parser.reset()
+                        
+                        # Track continuation attempts
+                        continuation_attempts += 1
+                        
+                        if continuation_attempts > max_continuation_attempts:
+                            self.debug_print("REACHED MAXIMUM CONTINUATION ATTEMPTS - STOPPING", highlight=True)
+                            full_response += "\n\n[Reached maximum number of command executions. Please ask a follow-up question to continue.]"
+                            should_continue = False
+                        else:
+                            # Make a new request for continuation after final command
+                            self.debug_print(f"Making continuation request after final command (attempt {continuation_attempts}/{max_continuation_attempts})", highlight=True)
+                            response = requests.post(endpoint, json=payload, stream=True)
+                            response.raise_for_status()
+                            response_stream = response.iter_lines()
                         
             # If the model finished generating and we don't need continuation, we're done
             if has_completed and not need_continuation:
@@ -567,8 +672,9 @@ class MCPCommandHandler:
             if need_continuation:
                 # Reset for next cycle
                 need_continuation = False
-                if stream:
-                    self.debug_print("CONTINUING GENERATION WITH COMMAND RESULTS", highlight=True)
+                
+                # Debug info about continuation
+                self.debug_print(f"CONTINUING GENERATION WITH COMMAND RESULTS (attempt {continuation_attempts}/{max_continuation_attempts})", highlight=True)
                     
         self.debug_print(f"Response complete ({len(full_response)} characters, {command_count} MCP commands executed)")
         return full_response

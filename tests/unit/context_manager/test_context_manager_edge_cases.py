@@ -121,7 +121,7 @@ def test_zero_context_window():
         pass
 
 
-@patch('tests.context_manager_for_testing.ContextManager.estimate_tokens')
+@patch('tests.unit.context_manager.context_manager_for_testing.ContextManager.estimate_tokens')
 def test_context_size_check_errors(mock_estimate, context_manager, empty_history):
     """Test error handling in context size checking."""
     # Test when token estimation fails

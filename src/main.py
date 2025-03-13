@@ -117,20 +117,16 @@ if __name__ == "__main__":
         model=model,
         api_base=api_base,
         mcp_fs_url=mcp_fs_url,
-        max_context_tokens=32000,
+        max_context_tokens=8192,
         system_prompt=CODING_AGENT_PROMPT,
         max_agents=max_agents,
     )
 
-    print(
-        f"{Colors.BG_GREEN}{Colors.BOLD}System initialized and ready{Colors.ENDC}"
-    )
+    print(f"{Colors.BG_GREEN}{Colors.BOLD}System initialized and ready{Colors.ENDC}")
     print(
         f"{Colors.GREEN}Available special commands: /status, /agents, /prune [n], /clear{Colors.ENDC}\n"
     )
-    print(
-        f"{Colors.CYAN}MCP filesystem server running on: {mcp_fs_url}{Colors.ENDC}"
-    )
+    print(f"{Colors.CYAN}MCP filesystem server running on: {mcp_fs_url}{Colors.ENDC}")
 
     # Main interaction loop
     while True:
@@ -143,7 +139,7 @@ if __name__ == "__main__":
                 f"\n{Colors.BG_CYAN}{Colors.BOLD}Exiting Hierarchical Multi-Agent Coding Assistant{Colors.ENDC}"
             )
             break
-            
+
         # Skip empty input
         if not user_input.strip():
             continue
@@ -151,19 +147,22 @@ if __name__ == "__main__":
         # Process user input through the orchestrator
         try:
             print(f"{Colors.BG_CYAN}{Colors.BOLD}Processing request...{Colors.ENDC}")
-            
+
             # The orchestrator handles delegating to transient agents or using the main agent
             response = orchestrator.chat(user_input, stream=True)
-            
+
             # Add a separator after the response
-            print(f"\n{Colors.CYAN}{'='*80}{Colors.ENDC}")
-            
+            print(f"\n{Colors.CYAN}{'=' * 80}{Colors.ENDC}")
+
         except KeyboardInterrupt:
-            print(f"\n{Colors.BG_YELLOW}{Colors.BOLD}Request interrupted by user{Colors.ENDC}")
-            continue
-            
-        except Exception as e:
-            print(f"{Colors.BG_RED}{Colors.BOLD}Error processing request: {str(e)}{Colors.ENDC}")
-            print(f"{Colors.RED}Try again or type 'exit' to quit{Colors.ENDC}")
+            print(
+                f"\n{Colors.BG_YELLOW}{Colors.BOLD}Request interrupted by user{Colors.ENDC}"
+            )
             continue
 
+        except Exception as e:
+            print(
+                f"{Colors.BG_RED}{Colors.BOLD}Error processing request: {str(e)}{Colors.ENDC}"
+            )
+            print(f"{Colors.RED}Try again or type 'exit' to quit{Colors.ENDC}")
+            continue
