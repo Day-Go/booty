@@ -61,14 +61,17 @@ class AgentOrchestrator:
         
         print(f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Initializing{Colors.ENDC}")
         
-        # Initialize the main agent
+        # Initialize the main agent with multi-model orchestration for context summarization
         self.main_agent = OllamaAgent(
             model=model,
             api_base=api_base,
             mcp_fs_url=mcp_fs_url,
             max_context_tokens=max_context_tokens,
             system_prompt=self.main_agent_prompt,
-            agent_id="MAIN_AGENT"
+            agent_id="MAIN_AGENT",
+            summarizer_model="gemma3:12b",
+            summarizer_max_tokens=32000,
+            enable_context_summarization=True
         )
         
         # Initialize support components
