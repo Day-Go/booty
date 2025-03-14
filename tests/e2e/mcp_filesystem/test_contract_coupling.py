@@ -113,9 +113,9 @@ def test_basic_filesystem_command_formats():
         ('<mcp:filesystem><grep path="/test/dir" pattern="def test" /></mcp:filesystem>',
          {"action": "grep", "path": "/test/dir", "pattern": "def test"}),
          
-        # pwd command
-        ('<mcp:filesystem><pwd /></mcp:filesystem>',
-         {"action": "pwd"})
+        # cd command
+        ('<mcp:filesystem><cd path="/test/dir" /></mcp:filesystem>',
+         {"action": "cd", "path": "/test/dir"})
     ]
     
     # Set up handlers

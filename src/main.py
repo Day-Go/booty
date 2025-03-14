@@ -20,9 +20,15 @@ CODING_AGENT_PROMPT = """You are a coding assistant that can help with software 
 You have access to the filesystem to read code, search for files, and help users understand
 and modify their codebase. Use XML-formatted MCP commands to interact with files when needed.
 
+Start by checking where you are in the filesystem with get_working_directory to understand your context.
+
 Example MCP commands:
 <mcp:filesystem>
-  <pwd />
+  <get_working_directory />
+</mcp:filesystem>
+
+<mcp:filesystem>
+  <cd path="/path/to/directory" />
 </mcp:filesystem>
 
 <mcp:filesystem>
@@ -49,6 +55,10 @@ def hello_world():
 if __name__ == "__main__":
     hello_world()
   </write>
+</mcp:filesystem>
+
+<mcp:filesystem>
+  <create_directory path="/path/to/new/directory" />
 </mcp:filesystem>
 """
 

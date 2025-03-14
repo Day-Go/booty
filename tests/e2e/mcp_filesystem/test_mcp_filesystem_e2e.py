@@ -22,6 +22,10 @@ from unittest.mock import MagicMock
 class MockMCPCommandHandler:
     def __init__(self, agent_id="TEST_AGENT"):
         self.agent_id = agent_id
+        # Track the current working directory
+        self.current_working_directory = os.getcwd()
+        # Track the script directory
+        self.script_directory = os.path.dirname(os.path.abspath(__file__))
         
     def extract_file_commands(self, command):
         """Extract commands from XML"""
@@ -46,8 +50,14 @@ class MockMCPCommandHandler:
             path = command.split('<grep path="')[1].split('"')[0]
             pattern = command.split('pattern="')[1].split('"')[0]
             return [{"action": "grep", "path": path, "pattern": pattern}]
+        elif "<cd path=" in command:
+            path = command.split('<cd path="')[1].split('"')[0]
+            return [{"action": "cd", "path": path}]
+        # Keep pwd for backward compatibility with existing tests
         elif "<pwd />" in command:
-            return [{"action": "pwd"}]
+            return [{"action": "cd", "path": os.getcwd()}]
+        elif "<get_working_directory />" in command:
+            return [{"action": "get_working_directory"}]
         return []
         
     def execute_file_commands(self, commands):
@@ -176,12 +186,49 @@ class MockMCPCommandHandler:
                         "error": str(e)
                     })
                     
-            elif action == "pwd":
-                results.append({
-                    "action": "pwd",
-                    "success": True,
-                    "current_dir": os.getcwd()
-                })
+            elif action == "cd":
+                try:
+                    previous_dir = self.current_working_directory
+                    # In the test environment, we actually change directories
+                    # In a real environment, we would just update the tracked directory
+                    if os.path.exists(path) and os.path.isdir(path):
+                        self.current_working_directory = os.path.abspath(path)
+                        current_dir = self.current_working_directory
+                        results.append({
+                            "action": "cd",
+                            "success": True,
+                            "previous_dir": previous_dir,
+                            "current_dir": current_dir
+                        })
+                    else:
+                        results.append({
+                            "action": "cd",
+                            "path": path,
+                            "success": False,
+                            "error": f"Directory does not exist: {path}"
+                        })
+                except Exception as e:
+                    results.append({
+                        "action": "cd",
+                        "path": path,
+                        "success": False,
+                        "error": str(e)
+                    })
+                    
+            elif action == "get_working_directory":
+                try:
+                    results.append({
+                        "action": "get_working_directory",
+                        "success": True,
+                        "current_dir": self.current_working_directory,
+                        "script_dir": self.script_directory
+                    })
+                except Exception as e:
+                    results.append({
+                        "action": "get_working_directory",
+                        "success": False,
+                        "error": str(e)
+                    })
                 
         return results
         
@@ -221,9 +268,15 @@ class MockMCPCommandHandler:
             elif action == "write":
                 result_output += f"\n[Successfully wrote to file {path}]\n"
                 
-            elif action == "pwd":
+            elif action == "cd":
                 current_dir = result.get("current_dir", "")
-                result_output += f"\n--- Current working directory ---\n{current_dir}\n---\n"
+                previous_dir = result.get("previous_dir", "")
+                result_output += f"\n--- Directory changed ---\nFrom: {previous_dir}\nTo: {current_dir}\n---\n"
+                
+            elif action == "get_working_directory":
+                current_dir = result.get("current_dir", "")
+                script_dir = result.get("script_dir", "")
+                result_output += f"\n--- Working Directory Information ---\nCurrent directory: {current_dir}\nScript directory: {script_dir}\n---\n"
                 
             elif action == "grep":
                 pattern = result.get("pattern", "")
@@ -364,13 +417,13 @@ class TestMCPFilesystemE2E:
         user_message = "What files are in the project? Can you show me the requirements.txt file?"
         
         # Simulated agent response with MCP command
-        agent_response = """I'll help you explore the project files. First, let's see what files are in the project:
+        agent_response = """I'll help you explore the project files. First, let's navigate to the project directory:
 
 <mcp:filesystem>
-    <pwd />
+    <cd path="{mock_project_path}" />
 </mcp:filesystem>
 
-Based on the current directory, let me list the files:
+Now that we're in the project directory, let me list the files:
 
 <mcp:filesystem>
     <list path="{mock_project_path}" />
@@ -395,7 +448,7 @@ Would you like me to explain any of these dependencies in more detail?""".format
         
         # Verify that all commands were detected
         assert len(detected_commands) == 3
-        assert "<pwd />" in detected_commands[0]
+        assert "<cd path=" in detected_commands[0]
         assert "<list path=" in detected_commands[1]
         assert "<read path=" in detected_commands[2]
         assert "requirements.txt" in detected_commands[2]
@@ -418,6 +471,10 @@ Would you like me to explain any of these dependencies in more detail?""".format
                     # Verify the directory was listed correctly
                     assert any(entry["name"] == "requirements.txt" for entry in result["entries"])
                     assert any(entry["name"] == "src" and entry["type"] == "directory" for entry in result["entries"])
+                    
+                if result["action"] == "cd":
+                    # Verify directory was changed correctly
+                    assert result["current_dir"] == os.path.abspath(mock_project_path)
     
     def test_write_file_command(self, temp_workspace, mcp_server):
         """Test writing a file with MCP command"""
@@ -622,7 +679,7 @@ You can include MCP commands in regular code blocks like this:
 
 ```
 <mcp:filesystem>
-    <pwd />
+    <cd path="{mock_project_path}" />
 </mcp:filesystem>
 ```
 
@@ -652,7 +709,7 @@ Would you like me to show you more complex examples of MCP filesystem commands?"
         
         # Verify that all commands were detected despite being in code blocks
         assert len(detected_commands) == 3
-        assert "<pwd />" in detected_commands[0]
+        assert "<cd path=" in detected_commands[0]
         assert "<list path=" in detected_commands[1]
         assert "<read path=" in detected_commands[2]
         
@@ -668,6 +725,74 @@ Would you like me to show you more complex examples of MCP filesystem commands?"
                 if result["action"] == "read":
                     # Verify the file content was read correctly
                     assert "Mock Project" in result["content"]
+                    
+                if result["action"] == "cd":
+                    # Verify directory was changed correctly
+                    assert result["current_dir"] == os.path.abspath(mock_project_path)
+    
+    def test_get_working_directory(self, mock_project_path, mcp_server):
+        """Test get_working_directory command"""
+        # Create command handler
+        handler = MockMCPCommandHandler(agent_id="TEST_AGENT")
+        
+        # User message
+        user_message = "What is the current working directory and script directory?"
+        
+        # Simulated agent response with MCP command
+        agent_response = """I'll get the working directory information for you:
+
+<mcp:filesystem>
+    <get_working_directory />
+</mcp:filesystem>
+
+Now let's try changing to a different directory and check again:
+
+<mcp:filesystem>
+    <cd path="{mock_project_path}" />
+</mcp:filesystem>
+
+<mcp:filesystem>
+    <get_working_directory />
+</mcp:filesystem>
+
+As you can see, the current working directory changes when we use cd, but the script directory stays the same because it's the location of the server script.""".format(mock_project_path=mock_project_path)
+        
+        # Process the response
+        _, parser, detected_commands = simulate_agent_response(agent_response)
+        
+        # Verify that all commands were detected
+        assert len(detected_commands) == 3
+        assert "<get_working_directory />" in detected_commands[0]
+        assert "<cd path=" in detected_commands[1]
+        assert "<get_working_directory />" in detected_commands[2]
+        
+        # Execute the commands
+        all_results = []
+        for command in detected_commands:
+            commands = handler.extract_file_commands(command)
+            results = handler.execute_file_commands(commands)
+            all_results.extend(results)
+            
+        # Verify all commands executed successfully
+        for result in all_results:
+            assert result["success"] is True
+            
+        # Check that we have two working directory results
+        wd_results = [r for r in all_results if r["action"] == "get_working_directory"]
+        assert len(wd_results) == 2
+        
+        # Check that the second result shows the updated working directory
+        assert wd_results[1]["current_dir"] == os.path.abspath(mock_project_path)
+        
+        # Check that script directory stayed the same
+        assert wd_results[0]["script_dir"] == wd_results[1]["script_dir"]
+        
+        # Format the results
+        formatted_results = handler.format_command_results(all_results)
+        
+        # Verify that formatted results contain both directory information
+        assert "Working Directory Information" in formatted_results
+        assert "Directory changed" in formatted_results
     
     def test_full_conversation_simulation(self, mock_project_path, mcp_server):
         """
@@ -682,13 +807,13 @@ Would you like me to show you more complex examples of MCP filesystem commands?"
             # Turn 1: User asks about project structure
             {
                 "user": "I'm new to this project. Can you help me understand its structure?",
-                "agent": """I'd be happy to help you understand the project structure. Let's first check the current working directory and then explore the project files.
+                "agent": """I'd be happy to help you understand the project structure. Let's first navigate to the project directory to explore the files.
 
 <mcp:filesystem>
-    <pwd />
+    <cd path="{mock_project_path}" />
 </mcp:filesystem>
 
-Now, let's see what files and directories are at the root of the project:
+Now that we're in the project directory, let's see what files and directories are at the root:
 
 <mcp:filesystem>
     <list path="{mock_project_path}" />

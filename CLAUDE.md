@@ -3,9 +3,8 @@
 ## Commands
 - Activate virtual environment: `source ~/pytorch-env/bin/activate`
 - Run Ollama inference: `python src/ollama_inference.py`
-- Run legacy QwQ model: `python legacy/run_qwq_4bit.py`
-- Lint code: `flake8 src/ legacy/ tests/`
-- Type checking: `mypy --ignore-missing-imports src/ legacy/ tests/`
+- Lint code: `flake8 src/ tests/`
+- Type checking: `mypy --ignore-missing-imports src/ tests/`
 - Run tests: `pytest tests/`
 - Run single test: `pytest tests/test_file.py::test_function -v`
 
@@ -21,7 +20,6 @@
 
 ## Project Organization
 - src/ - Current implementation with Ollama integration
-- legacy/ - Original QwQ model implementation
 - docs/ - Project documentation
 - tests/ - Test files (mirror src/ structure)
 - requirements.txt - Python dependencies
