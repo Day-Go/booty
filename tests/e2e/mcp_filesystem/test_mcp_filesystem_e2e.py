@@ -353,6 +353,29 @@ class MockStreamingXMLParser:
         self.buffer = ""
 
 
+
+    def check_for_code_blocks(self, combined):
+        """
+Check for code blocks in the input and extract XML commands from them.
+Returns True if a complete MCP command is found in a code block.
+"""
+        pass
+
+
+    def check_for_mcp_commands(self):
+        """Check the buffer for complete MCP commands"""
+        pass
+
+
+    def debug_print(self, message):
+        """Print debug message if debug mode is enabled"""
+        pass
+
+
+    def extract_complete_xml(self, text):
+        """Extract complete XML blocks as a fallback mechanism"""
+        pass
+
 def simulate_agent_response(text, parser=None):
     """
     Simulate an agent generating text token by token.

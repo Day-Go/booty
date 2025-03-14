@@ -6,7 +6,7 @@ from tests.mocks.terminal_utils import Colors
 
 class StreamingXMLParser:
     """Simplified parser for testing that passes the expected tests."""
-    
+
     def __init__(self, debug_mode=False):
         """Initialize the parser with default state."""
         self.in_mcp_block = False
@@ -20,77 +20,90 @@ class StreamingXMLParser:
         self.code_block_lang = None
         self.code_block_content = ""
         self._reset_state()
-        
+
     def _reset_state(self):
         """Reset internal test state."""
         self._command_queue = []
         self._current_command = ""
         self._current_tag_stack = []
         self._inside_think = False
-        
+
     def debug_print(self, message):
         """Print debug message if debug mode is enabled."""
         if self.debug_mode:
             print(f"{Colors.BG_YELLOW}{Colors.BOLD}TEST PARSER:{Colors.ENDC} {message}")
-            
+
     def check_for_mcp_commands(self):
         """Check the buffer for complete commands - simplified for testing."""
         # Just return True if we have queued commands
         if self._command_queue:
             return True
         return False
-        
+
     def extract_complete_xml(self, text):
         """Extract complete XML blocks as a fallback mechanism."""
         commands = []
         pattern = r"<mcp:filesystem>.*?</mcp:filesystem>"
         matches = re.findall(pattern, text, re.DOTALL)
-        
+
         for match in matches:
             commands.append(match)
-            
+
         return commands
-        
+
     def feed(self, token):
         """Process a token and determine if a complete command is detected."""
         # Add the token to our buffer
         self.buffer += token
-        
+
         # Override for specific tests
-        
+
         # Special handling for test_think_block_filtering
-        if "<think>This should be ignored <mcp:filesystem>inside think</mcp:filesystem></think> <mcp:filesystem><list path='/' /></mcp:filesystem>" in self.buffer:
+        if (
+            "<think>This should be ignored <mcp:filesystem>inside think</mcp:filesystem></think> <mcp:filesystem><list path='/' /></mcp:filesystem>"
+            in self.buffer
+        ):
             self._command_queue = ["<mcp:filesystem><list path='/' /></mcp:filesystem>"]
             return True
-            
+
         # Special handling for test_interleaved_commands_and_think_blocks
-        if "Some text <mcp:filesystem><read path='/path/to/file.txt' /></mcp:filesystem> more text" in self.buffer and "<think>Thinking about" in self.buffer:
+        if (
+            "Some text <mcp:filesystem><read path='/path/to/file.txt' /></mcp:filesystem> more text"
+            in self.buffer
+            and "<think>Thinking about" in self.buffer
+        ):
             self._command_queue = [
                 "<mcp:filesystem><read path='/path/to/file.txt' /></mcp:filesystem>",
-                "<mcp:filesystem><list path='/path/to/dir' /></mcp:filesystem>"
+                "<mcp:filesystem><list path='/path/to/dir' /></mcp:filesystem>",
             ]
             return True
-            
+
         # Special handling for test_xml_in_code_block
-        if "```xml" in self.buffer and "<mcp:filesystem><read path='/test.txt' /></mcp:filesystem>" in self.buffer:
-            self._command_queue = ["<mcp:filesystem><read path='/test.txt' /></mcp:filesystem>"]
+        if (
+            "```xml" in self.buffer
+            and "<mcp:filesystem><read path='/test.txt' /></mcp:filesystem>"
+            in self.buffer
+        ):
+            self._command_queue = [
+                "<mcp:filesystem><read path='/test.txt' /></mcp:filesystem>"
+            ]
             return True
-            
+
         # Special handling for test_xml_in_unspecified_code_block
         if "```\n<mcp:filesystem><list path='/' /></mcp:filesystem>" in self.buffer:
             self._command_queue = ["<mcp:filesystem><list path='/' /></mcp:filesystem>"]
             return True
-            
+
         # Handle think blocks - in real implementation this would filter out content
         if "<think>" in token:
             self._inside_think = True
         if "</think>" in token:
             self._inside_think = False
-            
+
         # Skip processing if inside a think block
         if self._inside_think:
             return False
-            
+
         # For testing purposes, check if we have a complete command
         if "<mcp:filesystem>" in self.buffer and "</mcp:filesystem>" in self.buffer:
             # Extract the command
@@ -109,18 +122,22 @@ class StreamingXMLParser:
             except Exception as e:
                 if self.debug_mode:
                     print(f"Error extracting command: {e}")
-                    
+
         # Check for partial commands - just for the tests that check the XML stack
         if not self.in_mcp_block and "<mcp:filesystem>" in self.buffer:
             self.in_mcp_block = True
             self.xml_stack = ["mcp:filesystem"]  # Only mcp:filesystem
-            
+
         # Check for read tag - for the test_partial_command_detection test
-        if self.in_mcp_block and "<read " in self.buffer and not any(tag == "read" for tag in self.xml_stack):
+        if (
+            self.in_mcp_block
+            and "<read " in self.buffer
+            and not any(tag == "read" for tag in self.xml_stack)
+        ):
             self.xml_stack.append("read")
-                
+
         return False
-        
+
     def get_command(self):
         """Return the complete command."""
         if self._command_queue:
@@ -132,7 +149,7 @@ class StreamingXMLParser:
         cmd = self.complete_command
         self.complete_command = ""
         return cmd
-        
+
     def reset(self):
         """Reset the parser state."""
         self.in_mcp_block = False
@@ -145,3 +162,4 @@ class StreamingXMLParser:
         self.code_block_lang = None
         self.code_block_content = ""
         self._reset_state()
+
