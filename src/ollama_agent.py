@@ -5,6 +5,7 @@ import re
 import time
 import xml.etree.ElementTree as ET
 import requests
+import tiktoken
 from typing import Dict, List, Any, Optional, Union, Tuple
 
 from terminal_utils import Colors
@@ -26,6 +27,7 @@ class OllamaAgent:
         summarizer_model="gemma3:12b",
         summarizer_max_tokens=32000,  # Higher limit for the smaller model (gemma3:12b)
         enable_context_summarization=True,
+        tokenizer_name="cl100k_base",  # OpenAI's tokenizer works well for most LLMs
     ):
         self.model = model
         self.api_base = api_base
@@ -45,9 +47,19 @@ class OllamaAgent:
         # Context management
         self.max_context_tokens = max_context_tokens
         self.system_prompt = system_prompt
-        self.token_estimate_ratio = (
-            4  # Approximation: 1 token ≈ 4 characters for English text
-        )
+        
+        # Set up tokenizer for accurate token counting
+        self.tokenizer_name = tokenizer_name
+        try:
+            self.tokenizer = tiktoken.get_encoding(tokenizer_name)
+            print(f"{Colors.CYAN}[{self.agent_id}] Using tiktoken {tokenizer_name} for accurate token counting{Colors.ENDC}")
+        except Exception as e:
+            print(f"{Colors.YELLOW}[{self.agent_id}] Warning: Could not load tiktoken: {str(e)}{Colors.ENDC}")
+            print(f"{Colors.YELLOW}[{self.agent_id}] Falling back to character-based estimation{Colors.ENDC}")
+            self.tokenizer = None
+            
+        # Fallback token estimation if tokenization fails
+        self.token_estimate_ratio = 4  # Approximation: 1 token ≈ 4 characters for English text
         
         # Context summarization (multi-model orchestration)
         self.enable_context_summarization = enable_context_summarization
@@ -58,7 +70,7 @@ class OllamaAgent:
                 model=summarizer_model,
                 api_base=api_base,
                 max_context_tokens=summarizer_max_tokens,
-                token_estimate_ratio=self.token_estimate_ratio
+                tokenizer_name=self.tokenizer_name
             )
         else:
             self.summarizer = None
@@ -441,13 +453,23 @@ class OllamaAgent:
 
         return response
 
-    def _estimate_tokens(self, text: str) -> int:
-        """Estimate the number of tokens in a text string
-
-        This is a simple approximation - more accurate token counting
-        would require a tokenizer specific to the model being used.
+    def _count_tokens(self, text: str) -> int:
+        """Count the number of tokens in a text string
+        
+        Uses tiktoken for accurate token counting or falls back to character-based estimation.
         """
-        return len(text) // self.token_estimate_ratio
+        if hasattr(self, 'tokenizer') and self.tokenizer is not None:
+            try:
+                # Use tiktoken for accurate counting
+                tokens = self.tokenizer.encode(text)
+                return len(tokens)
+            except Exception as e:
+                print(f"{Colors.YELLOW}[{self.agent_id}] Error counting tokens: {str(e)}{Colors.ENDC}")
+                # Fall back to character estimation
+                return len(text) // self.token_estimate_ratio
+        else:
+            # Fall back to character estimation
+            return len(text) // self.token_estimate_ratio
 
     def _check_context_size(self, history: List[Dict[str, str]]) -> Tuple[bool, int, bool]:
         """Check if the current context size is approaching the token limit
@@ -457,24 +479,26 @@ class OllamaAgent:
             history: The conversation history to check
 
         Returns:
-            Tuple of (is_near_limit, estimated_tokens, was_summarized)
+            Tuple of (is_near_limit, token_count, was_summarized)
         """
-        # Estimate token count for the entire history
-        total_chars = sum(len(msg["content"]) for msg in history)
-        estimated_tokens = total_chars // self.token_estimate_ratio
-
-        # Also account for system prompt if present
+        # Combine all messages for token counting
+        history_text = "\n\n".join([msg["content"] for msg in history])
+        
+        # Add system prompt if present
+        full_text = history_text
         if self.system_prompt:
-            system_tokens = len(self.system_prompt) // self.token_estimate_ratio
-            estimated_tokens += system_tokens
+            full_text = self.system_prompt + "\n\n" + history_text
+            
+        # Count tokens accurately using tiktoken
+        token_count = self._count_tokens(full_text)
 
         # Check if exceeding limit (90% of max context)
-        is_near_limit = estimated_tokens > (self.max_context_tokens * 0.9)
-        exceeds_limit = estimated_tokens > self.max_context_tokens
+        is_near_limit = token_count > (self.max_context_tokens * 0.9)
+        exceeds_limit = token_count > self.max_context_tokens
         was_summarized = False
 
         print(
-            f"{Colors.CYAN}Estimated context size: {estimated_tokens} tokens "
+            f"{Colors.CYAN}Accurate context size: {token_count} tokens "
             f"(limit: {self.max_context_tokens}){Colors.ENDC}"
         )
 
@@ -485,10 +509,34 @@ class OllamaAgent:
                 f"Applying summarization...{Colors.ENDC}"
             )
             
-            # Use the smaller model to summarize the context
-            summarized_history, was_summarized = self.summarizer.summarize_history(
-                history, preserve_recent=2
-            )
+            # First check the current token count
+            history_text = "\n\n".join([msg["content"] for msg in history])
+            current_token_count = self._count_tokens(history_text)
+            
+            # Only proceed with summarization if there's enough history to make it worthwhile
+            if len(history) >= 4:  # Need at least 4 messages (2 exchanges) to summarize
+                # Use the smaller model to summarize the context
+                # Make sure to pass the system prompt to be preserved
+                summarized_history, was_summarized = self.summarizer.summarize_history(
+                    history, 
+                    preserve_recent=2,
+                    system_prompt=self.system_prompt
+                )
+                
+                # Check if summarization actually reduced token count
+                if was_summarized:
+                    summarized_text = "\n\n".join([msg["content"] for msg in summarized_history])
+                    summarized_token_count = self._count_tokens(summarized_text)
+                    
+                    # Only use summarized history if it actually reduces token count
+                    if summarized_token_count >= current_token_count:
+                        print(f"{Colors.BG_RED}{Colors.BOLD}[{self.agent_id}] Summarization did not reduce token count. "
+                              f"Original: {current_token_count}, Summarized: {summarized_token_count}. "
+                              f"Keeping original context.{Colors.ENDC}")
+                        was_summarized = False
+            else:
+                print(f"{Colors.YELLOW}[{self.agent_id}] Not enough history to summarize.{Colors.ENDC}")
+                was_summarized = False
             
             if was_summarized:
                 print(
@@ -496,22 +544,27 @@ class OllamaAgent:
                     f"Reduced from {len(history)} messages to {len(summarized_history)} messages.{Colors.ENDC}"
                 )
                 
-                # Update the conversation history with the summarized version
-                self.conversation_history = summarized_history
-                self.context_was_summarized = True
+                # Verify the summarized history is actually smaller
+                summarized_text = "\n\n".join([msg["content"] for msg in summarized_history])
+                summarized_token_count = self._count_tokens(summarized_text)
                 
-                # Recalculate token count after summarization
-                total_chars = sum(len(msg["content"]) for msg in summarized_history)
-                estimated_tokens = total_chars // self.token_estimate_ratio
-                
-                if self.system_prompt:
-                    estimated_tokens += system_tokens
-                
-                # Re-check limits after summarization
-                is_near_limit = estimated_tokens > (self.max_context_tokens * 0.9)
+                if summarized_token_count < token_count:
+                    # Update the conversation history with the summarized version
+                    self.conversation_history = summarized_history
+                    self.context_was_summarized = True
+                    
+                    # Update token count
+                    token_count = summarized_token_count
+                    
+                    # Re-check limits after summarization
+                    is_near_limit = token_count > (self.max_context_tokens * 0.9)
+                else:
+                    print(f"{Colors.BG_RED}{Colors.BOLD}[{self.agent_id}] Warning: Summarization increased token count "
+                          f"from {token_count} to {summarized_token_count}. Using original context.{Colors.ENDC}")
+                    was_summarized = False
                 
                 print(
-                    f"{Colors.CYAN}New context size after summarization: {estimated_tokens} tokens "
+                    f"{Colors.CYAN}New context size after summarization: {token_count} tokens "
                     f"(limit: {self.max_context_tokens}){Colors.ENDC}"
                 )
             else:
@@ -524,7 +577,7 @@ class OllamaAgent:
                 f"{Colors.BG_RED}{Colors.BOLD}WARNING: Context size is approaching the limit!{Colors.ENDC}"
             )
 
-        return is_near_limit, estimated_tokens, was_summarized
+        return is_near_limit, token_count, was_summarized
 
     def _format_with_system_prompt(self, messages: str) -> str:
         """Format messages with system prompt at the beginning
@@ -571,22 +624,23 @@ class OllamaAgent:
         Returns:
             Dictionary with context stats
         """
-        # Format history into a string to estimate token count
+        # Count tokens accurately
         if not self.conversation_history:
-            estimated_tokens = 0
+            token_count = 0
             if self.system_prompt:
-                estimated_tokens = len(self.system_prompt) // self.token_estimate_ratio
+                token_count = self._count_tokens(self.system_prompt)
         else:
             # Note we ignore the summarization result here as we just want the token count
-            _, estimated_tokens, _ = self._check_context_size(self.conversation_history)
+            _, token_count, _ = self._check_context_size(self.conversation_history)
 
         status = {
             "messages": len(self.conversation_history),
             "exchanges": len(self.conversation_history) // 2,
-            "estimated_tokens": estimated_tokens,
+            "token_count": token_count,
             "max_tokens": self.max_context_tokens,
-            "usage_percentage": estimated_tokens / self.max_context_tokens * 100,
+            "usage_percentage": token_count / self.max_context_tokens * 100,
             "main_model": self.model,
+            "tokenizer": self.tokenizer_name if hasattr(self, 'tokenizer_name') else "character-based estimation"
         }
         
         # Add summarization info if enabled
@@ -636,9 +690,10 @@ class OllamaAgent:
                 status_response = (
                     f"Context Status:\n"
                     f"- Messages: {status['messages']} ({status['exchanges']} exchanges)\n"
-                    f"- Estimated tokens: {status['estimated_tokens']:,} / {status['max_tokens']:,}\n"
+                    f"- Token count: {status['token_count']:,} / {status['max_tokens']:,}\n"
                     f"- Context usage: {status['usage_percentage']:.1f}%\n"
                     f"- Main model: {status['main_model']}\n"
+                    f"- Tokenizer: {status['tokenizer']}\n"
                 )
                 
                 # Add summarization info if enabled

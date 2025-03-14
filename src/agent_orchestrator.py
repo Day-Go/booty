@@ -71,7 +71,8 @@ class AgentOrchestrator:
             agent_id="MAIN_AGENT",
             summarizer_model="gemma3:12b",
             summarizer_max_tokens=32000,
-            enable_context_summarization=True
+            enable_context_summarization=True,
+            tokenizer_name="cl100k_base"  # Use tiktoken for accurate token counting
         )
         
         # Initialize support components

@@ -8,6 +8,7 @@ conversation threads while preserving critical information.
 import requests
 import json
 import re
+import tiktoken
 from typing import List, Dict, Any, Tuple, Optional
 from terminal_utils import Colors
 
@@ -20,7 +21,7 @@ class ContextSummarizer:
         model="gemma3:12b",
         api_base="http://localhost:11434",
         max_context_tokens=32000,
-        token_estimate_ratio=4,
+        tokenizer_name="cl100k_base",
     ):
         """Initialize the context summarizer.
         
@@ -28,12 +29,20 @@ class ContextSummarizer:
             model: Ollama model to use for summarization
             api_base: URL for the Ollama API
             max_context_tokens: Maximum context window for the summarization model
-            token_estimate_ratio: Approximate characters per token ratio
+            tokenizer_name: Name of the tiktoken tokenizer to use
         """
         self.model = model
         self.api_base = api_base
         self.max_context_tokens = max_context_tokens
-        self.token_estimate_ratio = token_estimate_ratio
+        
+        # Initialize tokenizer for accurate token counting
+        try:
+            self.tokenizer = tiktoken.get_encoding(tokenizer_name)
+            print(f"{Colors.GREEN}[SUMMARIZER] Using tiktoken {tokenizer_name} for accurate token counting{Colors.ENDC}")
+        except Exception as e:
+            print(f"{Colors.YELLOW}[SUMMARIZER] Warning: Could not load tiktoken: {str(e)}{Colors.ENDC}")
+            print(f"{Colors.YELLOW}[SUMMARIZER] Falling back to character-based estimation{Colors.ENDC}")
+            self.tokenizer = None
         
         # Load system prompt for summarization
         self.system_prompt = self._get_summarization_prompt()
@@ -66,16 +75,27 @@ EXTREMELY IMPORTANT:
 - Make sure your summary is comprehensive enough that the conversation can continue naturally
 """
     
-    def estimate_tokens(self, text: str) -> int:
-        """Estimate the number of tokens in a text string.
+    def count_tokens(self, text: str) -> int:
+        """Count the number of tokens in a text string using tiktoken.
         
         Args:
-            text: Text to estimate token count for
+            text: Text to count tokens for
             
         Returns:
-            Estimated token count
+            Accurate token count
         """
-        return len(text) // self.token_estimate_ratio
+        if self.tokenizer is not None:
+            try:
+                # Use tiktoken for accurate counting
+                tokens = self.tokenizer.encode(text)
+                return len(tokens)
+            except Exception as e:
+                print(f"{Colors.YELLOW}[SUMMARIZER] Error counting tokens: {str(e)}{Colors.ENDC}")
+                # Fall back to character estimation
+                return len(text) // 4
+        else:
+            # Fall back to character estimation
+            return len(text) // 4
     
     def _extract_mcp_results(self, history: List[Dict[str, str]]) -> List[str]:
         """Extract MCP command results from conversation history.
@@ -129,13 +149,14 @@ EXTREMELY IMPORTANT:
         return code_blocks
     
     def summarize_history(
-        self, history: List[Dict[str, str]], preserve_recent: int = 2
+        self, history: List[Dict[str, str]], preserve_recent: int = 2, system_prompt: str = None
     ) -> Tuple[List[Dict[str, str]], bool]:
         """Summarize conversation history to fit within context limits.
         
         Args:
             history: Conversation history to summarize
             preserve_recent: Number of most recent exchanges to preserve untouched
+            system_prompt: The system prompt to preserve at the beginning
             
         Returns:
             Tuple of (summarized history, success flag)
@@ -147,10 +168,10 @@ EXTREMELY IMPORTANT:
         history_to_summarize = history[:-preserved_msgs] if preserved_msgs > 0 else history.copy()
         recent_history = history[-preserved_msgs:] if preserved_msgs > 0 else []
         
-        # If nothing to summarize, return original history
-        if not history_to_summarize:
-            print(f"{Colors.GREEN}[SUMMARIZER] No history to summarize{Colors.ENDC}")
-            return history, True
+        # If nothing to summarize or history is too small, return original history
+        if not history_to_summarize or len(history_to_summarize) <= 2:
+            print(f"{Colors.GREEN}[SUMMARIZER] History too small to summarize{Colors.ENDC}")
+            return history, False
         
         # Extract command results and code blocks to ensure preservation
         command_results = self._extract_mcp_results(history_to_summarize)
@@ -160,6 +181,10 @@ EXTREMELY IMPORTANT:
         formatted_history = "\n\n".join([
             f"{msg['role'].upper()}: {msg['content']}" for msg in history_to_summarize
         ])
+        
+        # Count tokens accurately
+        history_tokens = self.count_tokens(formatted_history)
+        print(f"{Colors.GREEN}[SUMMARIZER] Original history: {history_tokens} tokens, {len(formatted_history)} chars{Colors.ENDC}")
         
         # Create the summarization prompt
         prompt = (
@@ -175,7 +200,6 @@ EXTREMELY IMPORTANT:
         
         # Call the summarization model
         print(f"{Colors.GREEN}[SUMMARIZER] Calling {self.model} for summarization{Colors.ENDC}")
-        print(f"{Colors.GREEN}[SUMMARIZER] Original history length: {len(formatted_history)} chars{Colors.ENDC}")
         
         try:
             # Make request to Ollama API
@@ -192,18 +216,37 @@ EXTREMELY IMPORTANT:
             result = response.json()
             
             summary = result.get("response", "")
-            print(f"{Colors.GREEN}[SUMMARIZER] Received summary of {len(summary)} chars{Colors.ENDC}")
+            summary_tokens = self.count_tokens(summary)
+            print(f"{Colors.GREEN}[SUMMARIZER] Received summary of {summary_tokens} tokens, {len(summary)} chars{Colors.ENDC}")
             
-            # Create a new history with the summary as the first message
-            summarized_history = [
-                {"role": "system", "content": f"CONTEXT SUMMARY: {summary}"}
-            ]
+            # Create a new history with the system prompt and summary
+            summarized_history = []
+            
+            # Add original system prompt if provided
+            if system_prompt and system_prompt.strip():
+                # Keep only one system message with both the original prompt and the summary
+                combined_system_content = (
+                    f"{system_prompt}\n\n"
+                    f"--- CONVERSATION SUMMARY ---\n{summary}\n"
+                    f"--- END SUMMARY ---"
+                )
+                summarized_history.append({"role": "system", "content": combined_system_content})
+                system_tokens = self.count_tokens(combined_system_content)
+                print(f"{Colors.GREEN}[SUMMARIZER] Preserved system prompt with summary: {system_tokens} tokens{Colors.ENDC}")
+            else:
+                # Add the summary as a system message if no system prompt provided
+                summarized_history.append({"role": "system", "content": f"CONVERSATION SUMMARY: {summary}"})
             
             # Add back recent messages that were preserved
             summarized_history.extend(recent_history)
             
+            # Calculate final token count
+            final_content = "\n\n".join([msg["content"] for msg in summarized_history])
+            final_tokens = self.count_tokens(final_content)
+            
             print(f"{Colors.BG_GREEN}{Colors.BOLD}[SUMMARIZER] Successfully summarized context. "
-                  f"Reduced from {len(history)} to {len(summarized_history)} messages{Colors.ENDC}")
+                  f"Reduced from {history_tokens} to {final_tokens} tokens "
+                  f"({len(history)} to {len(summarized_history)} messages){Colors.ENDC}")
             
             return summarized_history, True
             
@@ -215,43 +258,50 @@ EXTREMELY IMPORTANT:
 def apply_context_summarization(
     history: List[Dict[str, str]], 
     current_model_limit: int,
-    token_estimate_ratio: int = 4,
     preserve_recent: int = 2,
     system_prompt: Optional[str] = None,
-    summarizer: Optional[ContextSummarizer] = None
+    summarizer: Optional[ContextSummarizer] = None,
+    tokenizer_name: str = "cl100k_base"
 ) -> Tuple[List[Dict[str, str]], bool, bool]:
     """Apply context summarization if needed based on token limits.
     
     Args:
         history: Conversation history
         current_model_limit: Token limit of the main model
-        token_estimate_ratio: Approximate characters per token ratio
         preserve_recent: Number of most recent exchanges to preserve
         system_prompt: System prompt that will be added (for size calculation)
         summarizer: Optional existing summarizer object
+        tokenizer_name: Name of the tiktoken tokenizer to use
         
     Returns:
         Tuple of (updated history, needs_summary, was_summarized)
     """
-    # Calculate total tokens
-    total_chars = sum(len(msg.get("content", "")) for msg in history)
-    system_chars = len(system_prompt) if system_prompt else 0
-    estimated_tokens = (total_chars + system_chars) // token_estimate_ratio
+    # Create or use existing summarizer for token counting
+    if summarizer is None:
+        summarizer = ContextSummarizer(tokenizer_name=tokenizer_name)
+    
+    # Get all content
+    history_content = "\n\n".join([msg.get("content", "") for msg in history])
+    if system_prompt:
+        history_content = system_prompt + "\n\n" + history_content
+    
+    # Calculate total tokens accurately
+    token_count = summarizer.count_tokens(history_content)
     
     # Check if summarization is needed (if we're over 90% capacity)
-    needs_summary = estimated_tokens > (current_model_limit * 0.9)
+    needs_summary = token_count > (current_model_limit * 0.9)
     
     if not needs_summary:
         return history, False, False
     
-    print(f"{Colors.BG_YELLOW}{Colors.BOLD}Context size ({estimated_tokens} tokens) exceeds model limit "
+    print(f"{Colors.BG_YELLOW}{Colors.BOLD}Context size ({token_count} tokens) exceeds model limit "
           f"({current_model_limit} tokens). Applying summarization...{Colors.ENDC}")
     
-    # Create or use existing summarizer
-    if summarizer is None:
-        summarizer = ContextSummarizer()
-    
-    # Summarize history
-    new_history, success = summarizer.summarize_history(history, preserve_recent)
+    # Summarize history with the system prompt to preserve
+    new_history, success = summarizer.summarize_history(
+        history, 
+        preserve_recent=preserve_recent,
+        system_prompt=system_prompt
+    )
     
     return new_history, needs_summary, success
