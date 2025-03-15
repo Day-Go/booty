@@ -99,6 +99,11 @@ class MCPCommandHandler:
                         cmd_type = cmd_element.tag.lower()
                         self.debug_print(f"Processing command type: {cmd_type}")
 
+                        # TODO: Remove pwd command and add new commands for changing directory and getting working directory.
+                        # The commands are implemented in mcp_filesystem_server.py and mcp_filesystem_client.py.
+                        # Documentation is in README_MCP_FILESYSTEM.md.
+                        # PRIORITY: CRITICAL
+
                         # Convert XML elements to command dictionaries
                         if cmd_type == "read":
                             path = cmd_element.get("path", "")
@@ -768,4 +773,3 @@ class MCPCommandHandler:
             f"Response complete ({len(full_response)} characters, {command_count} MCP commands executed)"
         )
         return full_response
-
