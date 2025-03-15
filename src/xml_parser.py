@@ -28,68 +28,96 @@ class StreamingXMLParser:
         if self.debug_mode:
             print(f"{Colors.BG_YELLOW}{Colors.BOLD}XML PARSER:{Colors.ENDC} {message}")
 
-    # TODO: This function isn't working as expected. The function never returns true despite
-    # the agent definitely responding with valid mcp commands. It might have something to do
-    # with the buffer or potentially the regular expression. It's important to note that
-    # the mcp command detection works once the response finishes streaming, using the
-    # process_streaming_response in mcp_handler, so you might want to check what is going on there.
-    # PRIORITY: CRITICAL
     def check_for_mcp_commands(self) -> bool:
         """Check the buffer for complete MCP commands"""
         # Look for opening MCP tag
         if "<mcp:filesystem>" in self.buffer and not self.in_mcp_block:
             self.in_mcp_block = True
             self.xml_stack.append("mcp:filesystem")
-            self.complete_command = "<mcp:filesystem>"
+
             # Remove everything before the opening tag
-            start_idx = self.buffer.find(
-                "<mcp:filesystem>"
-            )  # + len("<mcp:filesystem>")
-            self.buffer = self.buffer[start_idx:]
+            start_idx = self.buffer.find("<mcp:filesystem>")
+            self.complete_command = self.buffer[
+                start_idx : start_idx + len("<mcp:filesystem>")
+            ]
+            self.buffer = self.buffer[start_idx + len("<mcp:filesystem>") :]
             self.debug_print(f"Found opening MCP tag, buffer now: '{self.buffer}'")
 
         # Process MCP block content if we're in one
         if self.in_mcp_block:
-            # More robust tag detection with better regex for both self-closing and opening tags
+            processed_up_to = 0
+            # Process opening and self-closing tags
             for match in re.finditer(r"<(\w+(?::\w+)?)(?: [^>]*)?(/?)>", self.buffer):
                 tag = match.group(1)
                 is_self_closing = match.group(2) == "/"
 
-                if not is_self_closing:
-                    self.xml_stack.append(tag)
-                    self.debug_print(
-                        f"Added tag to stack: {tag}, stack: {self.xml_stack}"
-                    )
+                # Don't reprocess the opening mcp:filesystem tag
+                if match.start() >= processed_up_to:
+                    # Add the content up to this tag to the complete command
+                    self.complete_command += self.buffer[processed_up_to : match.end()]
+                    processed_up_to = match.end()
 
-            # Match closing tags
+                    if (
+                        not is_self_closing and tag != "mcp:filesystem"
+                    ):  # Avoid double-pushing the opening tag
+                        self.xml_stack.append(tag)
+                        self.debug_print(
+                            f"Added tag to stack: {tag}, stack: {self.xml_stack}"
+                        )
+                    elif is_self_closing:
+                        # For self-closing tags, we don't need to add them to the stack
+                        self.debug_print(f"Found self-closing tag: {tag}")
+
+            # Process closing tags separately to ensure proper tag order
             for match in re.finditer(r"</(\w+(?::\w+)?)>", self.buffer):
                 tag = match.group(1)
 
-                if self.xml_stack and self.xml_stack[-1] == tag:
-                    self.xml_stack.pop()
-                    self.debug_print(
-                        f"Popped tag from stack: {tag}, remaining: {self.xml_stack}"
-                    )
+                # Don't reprocess content we've already processed
+                if match.start() >= processed_up_to:
+                    # Add the content up to and including this closing tag
+                    self.complete_command += self.buffer[processed_up_to : match.end()]
+                    processed_up_to = match.end()
 
-                    # TODO: Extend behaviour to capture other sets of mcp commands, i.e. mcp:browser. PRIORITY: LOW
+                    # Handle the case where we find the closing mcp:filesystem tag
+                    if tag == "mcp:filesystem":
+                        # Check if we're closing the filesystem block (might have self-closing tags within)
+                        if "mcp:filesystem" in self.xml_stack:
+                            # Remove mcp:filesystem from stack (it should be the only or first element)
+                            if self.xml_stack[0] == "mcp:filesystem":
+                                self.xml_stack.pop(0)
+                            else:
+                                # Find and remove the mcp:filesystem tag from anywhere in the stack
+                                for i, stack_tag in enumerate(self.xml_stack):
+                                    if stack_tag == "mcp:filesystem":
+                                        self.xml_stack.pop(i)
+                                        break
 
-                    # Check if we've closed the MCP block
-                    if not self.xml_stack and tag == "mcp:filesystem":
-                        # We have a complete command
-                        end_idx = match.end()
-                        self.complete_command += self.buffer[:end_idx]
-                        self.buffer = self.buffer[end_idx:]
-                        self.in_mcp_block = False
+                            # We have a complete command, remove the processed part from buffer
+                            self.buffer = self.buffer[processed_up_to:]
+                            self.in_mcp_block = False
+                            self.debug_print(
+                                f"Complete command detected: {self.complete_command}"
+                            )
+                            return True
+                    elif self.xml_stack and self.xml_stack[-1] == tag:
+                        # Handle regular nested tags
+                        self.xml_stack.pop()
                         self.debug_print(
-                            f"Complete command detected: {self.complete_command}"
+                            f"Popped tag from stack: {tag}, remaining: {self.xml_stack}"
                         )
-                        return True
 
-            # Accumulate buffer but keep a small sliding window to catch split tags
-            self.complete_command += self.buffer
+                        # TODO: Extend behaviour to capture other sets of mcp commands, i.e. mcp:browser. PRIORITY: LOW
+
+            # Only keep unprocessed content in the buffer
+            if processed_up_to > 0:
+                self.buffer = self.buffer[processed_up_to:]
+
+            # Keep a reasonable window size to handle split tags
             window_size = 500  # Larger window to catch split tags
             if len(self.buffer) > window_size:
-                self.buffer = self.buffer[-window_size:]
+                # Only trim if we're not close to completing a tag
+                if "</" not in self.buffer[-50:] and "<" not in self.buffer[-10:]:
+                    self.buffer = self.buffer[-window_size:]
 
         return False
 
@@ -190,6 +218,27 @@ class StreamingXMLParser:
         self.debug_print(
             f"In think block: {self.in_think_block}, In MCP block: {self.in_mcp_block}, In code block: {self.in_code_block}"
         )
+
+        # Direct parsing of MCP commands regardless of being in code blocks
+        if "<mcp:filesystem>" in combined and "</mcp:filesystem>" in combined:
+            # Try direct parsing first if we see a complete command
+            complete_command_start = combined.find("<mcp:filesystem>")
+            complete_command_end = combined.find("</mcp:filesystem>") + len(
+                "</mcp:filesystem>"
+            )
+
+            if complete_command_start < complete_command_end:
+                complete_command = combined[complete_command_start:complete_command_end]
+                self.complete_command = complete_command
+                self.debug_print(
+                    f"Found complete MCP command in token: {complete_command}"
+                )
+
+                # Keep the content before and after the command in the buffer
+                self.buffer = (
+                    combined[:complete_command_start] + combined[complete_command_end:]
+                )
+                return True
 
         # If we're in a code block, continue accumulating content
         if self.in_code_block:
