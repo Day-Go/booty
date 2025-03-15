@@ -1,5 +1,6 @@
 """Terminal utilities for formatting console output."""
 
+
 # ANSI color codes for terminal output formatting
 class Colors:
     HEADER = "\033[95m"
@@ -23,3 +24,4 @@ class Colors:
     BG_MAGENTA = "\033[45m"
     BG_CYAN = "\033[46m"
     BG_WHITE = "\033[47m"
+

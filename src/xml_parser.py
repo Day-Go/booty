@@ -110,53 +110,66 @@ class StreamingXMLParser:
             lang_match = re.search(r"```(\w+)", combined[start_pos:])
             if lang_match:
                 self.code_block_lang = lang_match.group(1)
-                self.debug_print(f"Found code block with language: {self.code_block_lang}")
+                self.debug_print(
+                    f"Found code block with language: {self.code_block_lang}"
+                )
             else:
                 self.code_block_lang = None
                 self.debug_print("Found code block without language specifier")
-            
+
             self.in_code_block = True
-            
+
             # Extract content after the opening ```
             if lang_match:
                 start_content = start_pos + len("```") + len(self.code_block_lang)
             else:
                 start_content = start_pos + len("```")
-                
+
             self.code_block_content = combined[start_content:]
-            self.debug_print(f"Code block start detected, content so far: {self.code_block_content[:20]}...")
+            self.debug_print(
+                f"Code block start detected, content so far: {self.code_block_content[:20]}..."
+            )
 
         # Check for code block end
         if self.in_code_block and "```" in self.code_block_content:
             end_pos = self.code_block_content.find("```")
             full_content = self.code_block_content[:end_pos]
-            self.debug_print(f"Code block end detected, full content: {full_content[:30]}...")
-            
+            self.debug_print(
+                f"Code block end detected, full content: {full_content[:30]}..."
+            )
+
             # If it's an XML code block or contains MCP commands, process it
             if self.code_block_lang == "xml" or "<mcp:filesystem>" in full_content:
-                self.debug_print(f"Found potential XML command in code block: {full_content}")
-                
+                self.debug_print(
+                    f"Found potential XML command in code block: {full_content}"
+                )
+
                 # Extract MCP commands from the code block
-                if "<mcp:filesystem>" in full_content and "</mcp:filesystem>" in full_content:
+                if (
+                    "<mcp:filesystem>" in full_content
+                    and "</mcp:filesystem>" in full_content
+                ):
                     commands = self.extract_complete_xml(full_content)
                     if commands:
                         self.complete_command = commands[0]
-                        self.debug_print(f"Extracted XML command from code block: {self.complete_command}")
+                        self.debug_print(
+                            f"Extracted XML command from code block: {self.complete_command}"
+                        )
                         self.in_code_block = False
                         self.code_block_content = ""
                         self.code_block_lang = None
                         return True
-            
+
             # Reset code block state if no commands found
             self.in_code_block = False
             self.code_block_content = ""
             self.code_block_lang = None
-            
+
         # If we're in code block, append to code block content
         if self.in_code_block:
             # We've already processed this token into code_block_content
             return False
-            
+
         return False
 
     def feed(self, token: str) -> bool:
@@ -175,24 +188,29 @@ class StreamingXMLParser:
         # If we're in a code block, continue accumulating content
         if self.in_code_block:
             self.code_block_content += token
-            
+
             # Check if this token completes a code block
             if "```" in self.code_block_content:
                 end_pos = self.code_block_content.find("```")
                 full_content = self.code_block_content[:end_pos]
-                
+
                 # If it's an XML code block, look for MCP commands
                 if self.code_block_lang == "xml" or "<mcp:filesystem>" in full_content:
-                    if "<mcp:filesystem>" in full_content and "</mcp:filesystem>" in full_content:
+                    if (
+                        "<mcp:filesystem>" in full_content
+                        and "</mcp:filesystem>" in full_content
+                    ):
                         commands = self.extract_complete_xml(full_content)
                         if commands:
                             self.complete_command = commands[0]
                             self.in_code_block = False
                             self.code_block_content = ""
                             self.code_block_lang = None
-                            self.buffer += token  # Still add to buffer for normal processing
+                            self.buffer += (
+                                token  # Still add to buffer for normal processing
+                            )
                             return True
-                
+
                 # Reset code block tracking
                 self.in_code_block = False
                 self.code_block_content = ""
@@ -200,25 +218,27 @@ class StreamingXMLParser:
             else:
                 # Still in the code block, continue accumulating
                 return False
-        
+
         # Check for code block start
         if not self.in_code_block and "```" in token:
             # We might be starting a new code block
             start_pos = token.find("```")
-            
+
             # Check if there's a language specifier
             lang_match = re.search(r"```(\w+)", token[start_pos:])
             if lang_match:
                 self.code_block_lang = lang_match.group(1)
-                self.debug_print(f"Starting code block with language: {self.code_block_lang}")
-                
+                self.debug_print(
+                    f"Starting code block with language: {self.code_block_lang}"
+                )
+
                 # If it's an XML block, pay special attention
                 if self.code_block_lang.lower() == "xml":
                     self.in_code_block = True
                     # Extract content after the opening marker
                     start_content = start_pos + len("```") + len(self.code_block_lang)
                     self.code_block_content = token[start_content:]
-                    
+
                     # If the code block might be completed in this token
                     if "```" in self.code_block_content:
                         cmd_result = self.check_for_code_blocks(token)
@@ -226,11 +246,11 @@ class StreamingXMLParser:
                             return True
             else:
                 # No language specified, check if it has MCP commands
-                after_marker = token[start_pos + 3:]
+                after_marker = token[start_pos + 3 :]
                 if "<mcp:filesystem>" in after_marker:
                     self.in_code_block = True
                     self.code_block_content = after_marker
-                    
+
                     # Check if the code block ends in this token
                     if "```" in self.code_block_content:
                         cmd_result = self.check_for_code_blocks(token)
@@ -318,4 +338,3 @@ class StreamingXMLParser:
         self.in_code_block = False
         self.code_block_lang = None
         self.code_block_content = ""
-

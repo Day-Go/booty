@@ -1,12 +1,10 @@
 """
 Ollama inference with hierarchical agent architecture.
 
-This is the main entry point for the Ollama inference functionality with
+This is the main entry point for the program. It sets up
 multi-agent delegation for improved context management and task handling.
 """
 
-import io
-import sys
 import logging
 import uvicorn
 import threading
