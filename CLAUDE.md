@@ -2,7 +2,7 @@
 
 ## Commands
 - Activate virtual environment: `source ~/pytorch-env/bin/activate`
-- Check `TODO.md` for tasks to complete
+- Check `TODO.md` for tasks to complete. Do not remove todo items from source manually, they are removed automatically with the next instruction.
 - Mark in TODO.md tasks as complete once they are finished then run `python tools/todo_parse.py`
 - Write changes in `CHANGES.md`. Make sure to reference the TODO item you were addressing. 
 - Lint code: `flake8 src/ tests/`

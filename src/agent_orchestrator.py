@@ -55,6 +55,7 @@ class AgentOrchestrator:
         print(f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Initializing{Colors.ENDC}")
 
         # Initialize the main agent with multi-model orchestration for context summarization
+        # TODO: Replace hardcoded parameters with variables passed in from calling classes. PRIORITY: MEDIUM
         self.main_agent = OllamaAgent(
             model=model,
             api_base=api_base,
