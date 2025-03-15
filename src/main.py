@@ -108,7 +108,7 @@ if __name__ == "__main__":
     model = "gemma3:27b"
     api_base = "http://localhost:11434"  # Ollama API endpoint
     mcp_fs_url = "http://127.0.0.1:8000"  # MCP Filesystem API endpoint
-    max_agents = 10  # Maximum number of concurrent transient agents
+    max_agents = 10
 
     # Start mcp servers
     print(f"{Colors.BOLD}Starting MCP Filesystem server in background...{Colors.ENDC}")

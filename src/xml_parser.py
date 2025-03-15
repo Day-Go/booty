@@ -2,12 +2,9 @@
 
 import re
 
-# Use try-except for imports to handle both direct module execution and package imports
 try:
-    # Try relative import first (for when running as a module)
     from terminal_utils import Colors
 except ImportError:
-    # Fall back to absolute import (for when imported from tests)
     from src.terminal_utils import Colors
 
 
@@ -15,7 +12,6 @@ class StreamingXMLParser:
     """Improved streaming parser for XML-based MCP commands"""
 
     def __init__(self, debug_mode=False):
-        # Parser state
         self.in_mcp_block = False
         self.buffer = ""
         self.xml_stack = []
@@ -66,6 +62,8 @@ class StreamingXMLParser:
                     self.debug_print(
                         f"Popped tag from stack: {tag}, remaining: {self.xml_stack}"
                     )
+
+                    # TODO: Extend behaviour to capture other sets of mcp commands, i.e. mcp:browser. PRIORITY: LOW
 
                     # Check if we've closed the MCP block
                     if not self.xml_stack and tag == "mcp:filesystem":
