@@ -3,7 +3,7 @@
 ## 2025-03-15
 
 ### MCP Filesystem Update
-- Updated MCPFilesystemClient in ollama_inference_offline.py to match implementation in mcp_filesystem_client.py
+- Replaced duplicate MCPFilesystemClient implementation in ollama_inference_offline.py with import from mcp_filesystem_client.py
 - Added XML command parsing capabilities to OfflineFileAgent, matching mcp_command_handler.py
 - Improved error handling and formatting of command results
 - Added support for all MCP filesystem commands (read, write, list, search, cd, pwd, grep, mkdir)
