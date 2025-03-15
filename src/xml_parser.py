@@ -28,6 +28,12 @@ class StreamingXMLParser:
         if self.debug_mode:
             print(f"{Colors.BG_YELLOW}{Colors.BOLD}XML PARSER:{Colors.ENDC} {message}")
 
+    # TODO: This function isn't working as expected. The function never returns true despite
+    # the agent definitely responding with valid mcp commands. It might have something to do
+    # with the buffer or potentially the regular expression. It's important to note that
+    # the mcp command detection works once the response finishes streaming, using the
+    # process_streaming_response in mcp_handler, so you might want to check what is going on there.
+    # PRIORITY: CRITICAL
     def check_for_mcp_commands(self) -> bool:
         """Check the buffer for complete MCP commands"""
         # Look for opening MCP tag
@@ -36,7 +42,9 @@ class StreamingXMLParser:
             self.xml_stack.append("mcp:filesystem")
             self.complete_command = "<mcp:filesystem>"
             # Remove everything before the opening tag
-            start_idx = self.buffer.find("<mcp:filesystem>") + len("<mcp:filesystem>")
+            start_idx = self.buffer.find(
+                "<mcp:filesystem>"
+            )  # + len("<mcp:filesystem>")
             self.buffer = self.buffer[start_idx:]
             self.debug_print(f"Found opening MCP tag, buffer now: '{self.buffer}'")
 
@@ -79,7 +87,7 @@ class StreamingXMLParser:
 
             # Accumulate buffer but keep a small sliding window to catch split tags
             self.complete_command += self.buffer
-            window_size = 50  # Larger window to catch split tags
+            window_size = 500  # Larger window to catch split tags
             if len(self.buffer) > window_size:
                 self.buffer = self.buffer[-window_size:]
 

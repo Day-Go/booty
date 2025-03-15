@@ -2,6 +2,7 @@
 
 import re
 import json
+import requests
 from typing import Dict, List, Any, Optional, Tuple
 
 # Use try-except for imports to handle both direct module execution and package imports
@@ -149,6 +150,18 @@ class MCPCommandHandler:
                             self.debug_print("PWD command")
                             commands.append({"action": "pwd"})
 
+                        elif cmd_type == "get_working_directory":
+                            self.debug_print("Get working directory command")
+                            commands.append({"action": "get_working_directory"})
+
+                        elif cmd_type == "cd":
+                            path = cmd_element.get("path", "")
+                            if path:
+                                self.debug_print(
+                                    f"Change directory command with path: {path}"
+                                )
+                                commands.append({"action": "cd", "path": path})
+
                         elif cmd_type == "grep":
                             path = cmd_element.get("path", "")
                             pattern = cmd_element.get("pattern", "")
@@ -254,12 +267,35 @@ class MCPCommandHandler:
                     )
 
                 elif action == "pwd":
-                    result = self.fs_client.get_current_directory()
+                    result = self.fs_client.get_working_directory()
                     results.append(
                         {
                             "action": "pwd",
                             "success": True,
                             "current_dir": result.get("current_dir"),
+                        }
+                    )
+
+                elif action == "get_working_directory":
+                    result = self.fs_client.get_working_directory()
+                    results.append(
+                        {
+                            "action": "get_working_directory",
+                            "success": True,
+                            "current_dir": result.get("current_dir"),
+                            "script_dir": result.get("script_dir"),
+                        }
+                    )
+
+                elif action == "cd":
+                    result = self.fs_client.change_directory(path)
+                    results.append(
+                        {
+                            "action": "cd",
+                            "path": path,
+                            "success": result.get("success", False),
+                            "current_dir": result.get("current_dir"),
+                            "previous_dir": result.get("previous_dir"),
                         }
                     )
 
@@ -341,6 +377,24 @@ class MCPCommandHandler:
                     f"\n--- Current working directory ---\n{current_dir}\n---\n"
                 )
 
+            elif action == "get_working_directory":
+                current_dir = result.get("current_dir", "")
+                script_dir = result.get("script_dir", "")
+                result_output += (
+                    f"\n--- Working directory information ---\n"
+                    f"Current directory: {current_dir}\n"
+                    f"Script directory: {script_dir}\n---\n"
+                )
+
+            elif action == "cd":
+                current_dir = result.get("current_dir", "")
+                previous_dir = result.get("previous_dir", "")
+                result_output += (
+                    f"\n--- Directory changed ---\n"
+                    f"From: {previous_dir}\n"
+                    f"To: {current_dir}\n---\n"
+                )
+
             elif action == "grep":
                 pattern = result.get("pattern", "")
                 matches = result.get("matches", [])
@@ -375,10 +429,9 @@ class MCPCommandHandler:
         Returns:
             Full response with command results
         """
-        import requests
 
         # Initialize the streaming parser
-        xml_parser = StreamingXMLParser(debug_mode=False)
+        xml_parser = StreamingXMLParser(debug_mode=True)
 
         # Initialize response tracking
         full_response = ""

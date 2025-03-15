@@ -1,5 +1,6 @@
 - [ ] Add command line arg for launching agent in debug mode
-- [ ] Implement testing framework where the agent executes the tests while running. Like a health check command /health initiats the routing and the agent tests mcp calls
+- [ ] Implement testing framework where the agent executes the tests while running. Like a health check command `/health` where the agent tests mcp calls
+- [ ] Add new command `/summarize` for compressing context size
 
 ### Scoped
 
