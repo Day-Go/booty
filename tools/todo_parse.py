@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Tool to parse Python files and extract TODO comments with priorities.
 
@@ -9,7 +10,7 @@ and generates a TODO.md file with references to file paths and line numbers.
 import os
 import re
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 
 # Define priority levels for sorting
@@ -49,18 +50,32 @@ def find_project_root() -> str:
 class TodoItem:
     """Represents a TODO item with its details."""
 
-    def __init__(self, text: str, priority: str, file_path: str, line_number: int):
+    def __init__(
+        self,
+        text: str,
+        priority: str,
+        file_path: str,
+        line_number: int,
+        completed: bool = False,
+    ):
         self.text = text.strip()
         self.priority = priority.upper().strip()
         self.file_path = file_path
         self.line_number = line_number
+        self.completed = completed
 
     def __str__(self) -> str:
-        return f"{self.text} (PRIORITY: {self.priority})"
+        status = "[x]" if self.completed else ""
+        return f"{status} {self.text} (PRIORITY: {self.priority})"
 
     def markdown_format(self) -> str:
         """Format the TODO item for markdown display."""
-        return f"- [ ] {self.text} [{self.file_path}:{self.line_number}]"
+        checkbox = "- [ ]" if not self.completed else "- [x]"
+        return f"{checkbox} {self.text} [{self.file_path}:{self.line_number}]"
+
+    def matches_location(self, file_path: str, line_number: int) -> bool:
+        """Check if this TODO matches the given file path and line number."""
+        return self.file_path == file_path and self.line_number == line_number
 
 
 def find_python_files(root_dir: str) -> List[str]:
@@ -102,6 +117,101 @@ def get_relative_path(file_path: str, base_dir: str) -> str:
     return rel_path
 
 
+def parse_completed_todos(todo_file: str) -> List[Dict[str, Any]]:
+    """
+    Parse the TODO.md file to find completed items marked with [x].
+
+    Returns:
+        List of dictionaries with file path and line number of completed TODOs
+    """
+    completed_todos = []
+    if not os.path.exists(todo_file):
+        return completed_todos
+
+    # Regular expression to match completed TODO items with file locations
+    # Format: "- [x] Some todo text [file_path:line_number]"
+    completed_pattern = re.compile(r"- \[x\] (.*?) \[(.*?):(\d+)\]")
+
+    try:
+        with open(todo_file, "r", encoding="utf-8") as file:
+            for line in file:
+                match = completed_pattern.search(line)
+                if match:
+                    text = match.group(1).strip()
+                    file_path = match.group(2).strip()
+                    line_number = int(match.group(3))
+
+                    completed_todos.append(
+                        {
+                            "text": text,
+                            "file_path": file_path,
+                            "line_number": line_number,
+                        }
+                    )
+    except Exception as e:
+        print(f"Error parsing TODO.md for completed items: {e}", file=sys.stderr)
+
+    return completed_todos
+
+
+def remove_todo_from_file(file_path: str, line_number: int, project_root: str) -> bool:
+    """
+    Remove a TODO comment from a specific line in a file.
+
+    Args:
+        file_path: Relative path to the file
+        line_number: Line number to remove the TODO from
+        project_root: Project root directory
+
+    Returns:
+        True if successful, False otherwise
+    """
+    # Convert relative path to absolute
+    abs_file_path = os.path.join(project_root, file_path)
+
+    if not os.path.exists(abs_file_path):
+        print(f"Error: File not found: {abs_file_path}", file=sys.stderr)
+        return False
+
+    try:
+        # Read all lines from the file
+        with open(abs_file_path, "r", encoding="utf-8") as file:
+            lines = file.readlines()
+
+        # Check if line number is valid
+        if line_number <= 0 or line_number > len(lines):
+            print(
+                f"Error: Invalid line number {line_number} for file {file_path}",
+                file=sys.stderr,
+            )
+            return False
+
+        # Get the line to verify it contains a TODO
+        line = lines[line_number - 1]
+        if not re.search(r"#\s*TODO:", line, re.IGNORECASE):
+            print(
+                f"Warning: Line {line_number} in {file_path} does not contain a TODO comment",
+                file=sys.stderr,
+            )
+            return False
+
+        # Remove the line
+        del lines[line_number - 1]
+
+        # Write the updated content back to the file
+        with open(abs_file_path, "w", encoding="utf-8") as file:
+            file.writelines(lines)
+
+        print(f"Removed TODO from {file_path}:{line_number}")
+        return True
+
+    except Exception as e:
+        print(
+            f"Error removing TODO from {file_path}:{line_number}: {e}", file=sys.stderr
+        )
+        return False
+
+
 def generate_markdown(
     todos: List[TodoItem], output_file: str, project_root: str
 ) -> None:
@@ -109,8 +219,20 @@ def generate_markdown(
     # Read existing content if file exists
     existing_content = ""
     high_level_todos = ""
+    completed_todos = []
+
     try:
         if os.path.exists(output_file):
+            # Find completed TODOs before updating the file
+            completed_todos = parse_completed_todos(output_file)
+
+            # Process completed TODOs by removing them from source files
+            for completed in completed_todos:
+                remove_todo_from_file(
+                    completed["file_path"], completed["line_number"], project_root
+                )
+
+            # Read the existing content
             with open(output_file, "r", encoding="utf-8") as existing_file:
                 existing_content = existing_file.read()
 
@@ -120,26 +242,41 @@ def generate_markdown(
                 high_level_todos = existing_content[:scoped_index].strip()
             else:
                 high_level_todos = existing_content.strip()
+
     except Exception as e:
         print(f"Warning: Could not read existing TODO.md: {e}", file=sys.stderr)
 
-    # Group TODOs by priority
-    todos_by_priority = defaultdict(list)
+    # Filter out todos that correspond to completed items
+    filtered_todos = []
     for todo in todos:
         # Make file path relative to project root
         todo.file_path = get_relative_path(todo.file_path, project_root)
+
+        # Check if this TODO corresponds to a completed item that was already removed
+        is_completed = any(
+            todo.file_path == completed["file_path"]
+            and todo.line_number == completed["line_number"]
+            for completed in completed_todos
+        )
+
+        if not is_completed:
+            filtered_todos.append(todo)
+
+    # Group TODOs by priority
+    todos_by_priority = defaultdict(list)
+    for todo in filtered_todos:
         todos_by_priority[todo.priority].append(todo)
 
     with open(output_file, "w", encoding="utf-8") as md_file:
         # Preserve high-level TODOs if they exist
         if high_level_todos:
-            md_file.write(f"{high_level_todos}\n\n")
+            md_file.write(f"{high_level_todos}\n")
         else:
-            md_file.write("# TODO List\n\n")
-            md_file.write("[ ] Add high-level TODO items here\n\n")
+            md_file.write("# TODO List\n")
+            md_file.write("[ ] Add high-level TODO items here\n")
 
         # Add scoped section with auto-generated TODOs
-        md_file.write("### Scoped\n\n")
+        md_file.write("\n### Scoped\n\n")
 
         # Define priorities to ensure a consistent order
         all_priorities = sorted(
@@ -182,6 +319,19 @@ def main():
         print(f"Tests directory not found: {tests_dir}", file=sys.stderr)
         tests_dir = None
 
+    # Output file path
+    output_file = os.path.join(project_root, "TODO.md")
+
+    # Check for completed TODOs first (before scanning files)
+    # This is important because we want to remove completed TODOs from the source files
+    # before we scan them again
+    completed_count = 0
+    if os.path.exists(output_file):
+        completed_todos = parse_completed_todos(output_file)
+        completed_count = len(completed_todos)
+        if completed_count > 0:
+            print(f"Found {completed_count} completed TODOs to remove")
+
     # Find all Python files
     python_files = []
     if src_dir:
@@ -201,14 +351,15 @@ def main():
         file_todos = extract_todos(file_path)
         all_todos.extend(file_todos)
 
-    # Output file path
-    output_file = os.path.join(project_root, "TODO.md")
-
     # Generate markdown file, even if no TODOs were found
     # The generate_markdown function will handle both cases
     generate_markdown(all_todos, output_file, project_root)
 
-    print(f"Updated TODO.md with {len(all_todos)} code comment TODOs")
+    todo_count = len(all_todos) - completed_count  # Adjust for completed TODOs
+    if completed_count > 0:
+        print(f"Removed {completed_count} completed TODOs")
+    print(f"Updated TODO.md with {todo_count} remaining code comment TODOs")
+
     return 0
 
 
