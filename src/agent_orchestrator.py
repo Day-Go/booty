@@ -105,7 +105,6 @@ class AgentOrchestrator:
         print(
             f"{Colors.BG_BLUE}{Colors.BOLD}[ORCHESTRATOR] Processing chat request{Colors.ENDC}"
         )
-
         # Handle special commands
         if message.lower().startswith("/"):
             return self._handle_special_command(message)

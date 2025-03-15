@@ -7,10 +7,11 @@ import uuid
 from terminal_utils import Colors
 
 
-# This class is a mess. Hardcoded rules that aren't useful.
+# TODO: This class is a mess. Hardcoded rules that aren't useful.
 # Summarising the wikipedia page of a book would be considered a complex task
 # Writing an advanced GPU algorithm would be considered trivial w/ no required planning
 # This needs to be replaced with a lightweight model that decomposes tasks
+# PRIORITY: HIGH
 class TaskPlanner:
     """Plans and decomposes complex user requests into discrete tasks."""
 
@@ -265,4 +266,3 @@ class TaskPlanner:
         )
 
         return plan
-
