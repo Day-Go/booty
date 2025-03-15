@@ -1,13 +1,11 @@
 """Transient Agent for handling delegated tasks with clean context."""
 
 from typing import Dict, List, Any, Optional, Union, Tuple
-import json
 import re
 import requests
 
 from terminal_utils import Colors
 from mcp_filesystem_client import MCPFilesystemClient
-from xml_parser import StreamingXMLParser
 from mcp_command_handler import MCPCommandHandler
 
 

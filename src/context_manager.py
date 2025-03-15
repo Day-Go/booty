@@ -9,7 +9,7 @@ from terminal_utils import Colors
 class ContextManager:
     """Manages LLM context size and intelligent pruning of conversation history."""
 
-    def __init__(self, max_context_tokens: int = 32000, token_ratio: int = 4):
+    def __init__(self, max_context_tokens: int = 8192, token_ratio: int = 4):
         """Initialize a ContextManager instance.
 
         Args:
@@ -18,8 +18,8 @@ class ContextManager:
         """
         self.max_context_tokens = max_context_tokens
         self.token_ratio = token_ratio
-        self.warning_threshold = 0.7  # Warn at 70% context usage
-        self.critical_threshold = 0.9  # Critical warning at 90% context usage
+        self.warning_threshold = 0.7
+        self.critical_threshold = 0.9
 
     def estimate_tokens(self, text: str) -> int:
         """Estimate the number of tokens in a text string.
