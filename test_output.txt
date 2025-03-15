@@ -1,4 +1,0 @@
-
-        This content will be written to the file.
-        Multiple lines are supported.
-    
