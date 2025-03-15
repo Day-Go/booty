@@ -12,7 +12,7 @@ except ImportError:
     from src.mcp_filesystem_client import MCPFilesystemClient
 
 
-class OfflineFileAgent:
+class MCPFilesystemCommandProcessor:
     """Offline version of the agent that doesn't require Ollama API"""
 
     def __init__(self, mcp_fs_url="http://127.0.0.1:8000", agent_id="OfflineAgent"):
@@ -540,7 +540,7 @@ class OfflineFileAgent:
 # Example usage for offline testing
 if __name__ == "__main__":
     # Create an instance of OfflineFileAgent
-    file_agent = OfflineFileAgent(mcp_fs_url="http://127.0.0.1:8000")
+    file_agent = MCPFilesystemCommandProcessor(mcp_fs_url="http://127.0.0.1:8000")
 
     # Interactive loop
     print("Offline File Agent initialized. Type 'exit' to quit.")
