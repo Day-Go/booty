@@ -2,7 +2,9 @@
 
 ## Commands
 - Activate virtual environment: `source ~/pytorch-env/bin/activate`
-- Run Ollama inference: `python src/ollama_inference.py`
+- Check `TODO.md` for tasks to complete
+- Mark in TODO.md tasks as complete once they are finished then run `python tools/todo_parse.py`
+- Write changes in `CHANGES.md`. Make sure to reference the TODO item you were addressing. 
 - Lint code: `flake8 src/ tests/`
 - Type checking: `mypy --ignore-missing-imports src/ tests/`
 - Run tests: `pytest tests/`
