@@ -145,6 +145,11 @@ def set_current_working_directory(path: str) -> str:
     return CURRENT_WORKING_DIRECTORY
 
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+
 # Filesystem Operations
 @app.post("/read_file", response_model=FileReadResponse)
 async def read_file(request: FileReadRequest):

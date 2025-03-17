@@ -9,6 +9,13 @@ import logging
 import uvicorn
 import threading
 import time
+import sys
+import os
+import requests
+from requests.exceptions import ConnectionError
+
+# Add src directory to path for relative imports when running directly
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from utils.terminal_utils import Colors
@@ -17,53 +24,9 @@ except ImportError:
     from src.utils.terminal_utils import Colors
     from src.agents.agent_orchestrator import AgentOrchestrator
 
-
 # Default system prompt for the coding agent
-CODING_AGENT_PROMPT = """You are a coding assistant that can help with software development tasks.
-You have access to the filesystem to read code, search for files, and help users understand
-and modify their codebase. Use XML-formatted MCP commands to interact with files when needed.
-
-Start by checking where you are in the filesystem with get_working_directory to understand your context.
-
-Example MCP commands:
-<mcp:filesystem>
-  <get_working_directory />
-</mcp:filesystem>
-
-<mcp:filesystem>
-  <cd path="/path/to/directory" />
-</mcp:filesystem>
-
-<mcp:filesystem>
-  <read path="/path/to/file.py" />
-</mcp:filesystem>
-
-<mcp:filesystem>
-  <list path="/path/to/directory" />
-</mcp:filesystem>
-
-<mcp:filesystem>
-  <grep path="/path/to/directory" pattern="search_pattern" />
-</mcp:filesystem>
-
-<mcp:filesystem>
-  <search path="/path/to/directory" pattern="*.py" />
-</mcp:filesystem>
-
-<mcp:filesystem>
-  <write path="/path/to/new_file.py">
-def hello_world():
-    print("Hello, World!")
-
-if __name__ == "__main__":
-    hello_world()
-  </write>
-</mcp:filesystem>
-
-<mcp:filesystem>
-  <create_directory path="/path/to/new/directory" />
-</mcp:filesystem>
-"""
+with open("src/prompts/coding_agent_prompt.txt", "r") as f:
+    CODING_AGENT_PROMPT = f.read()
 
 
 def configure_uvicorn_logging():
@@ -90,12 +53,27 @@ def start_mcp_filesystem_server():
 
     # Run the server with minimal logging settings
     uvicorn.run(
-        "mcp.mcp_filesystem_server:app",
+        "src.mcp.mcp_filesystem_server:app",
         host="127.0.0.1",
         port=8000,
         log_level="critical",
         access_log=False,
     )
+
+
+def check_server_status(url, max_retries=15, retry_delay=0.5):
+    """Check if the server is up and running by making a request to it."""
+    for i in range(max_retries):
+        try:
+            response = requests.get(
+                f"{url}/health"
+            )  # Assuming there's a health endpoint
+            if response.status_code == 200:
+                return True
+        except ConnectionError:
+            print(f"Server not ready yet, retrying ({i + 1}/{max_retries})...")
+        time.sleep(retry_delay)
+    return False
 
 
 # Example usage for hierarchical multi-agent coding assistant
@@ -120,8 +98,16 @@ if __name__ == "__main__":
     server_thread = threading.Thread(target=start_mcp_filesystem_server, daemon=True)
     server_thread.start()
 
-    # Give the server a moment to start before continuing
     time.sleep(1)
+    if check_server_status(mcp_fs_url):
+        print(f"{Colors.BOLD}MCP Filesystem server started successfully.{Colors.ENDC}")
+    else:
+        print(
+            f"{Colors.BG_RED}{Colors.BOLD}Failed to start MCP Filesystem server.{Colors.ENDC}"
+        )
+        sys.exit(1)
+
+    # Give the server a moment to start before continuing
     print(f"{Colors.BOLD}MCP Filesystem server started successfully.{Colors.ENDC}")
 
     # Create orchestrator with hierarchical agent architecture
