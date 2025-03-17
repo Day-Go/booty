@@ -8,14 +8,14 @@ from typing import Dict, List, Any, Optional, Tuple
 # Use try-except for imports to handle both direct module execution and package imports
 try:
     # Try relative imports first (for when running as a module)
-    from terminal_utils import Colors
-    from mcp_filesystem_client import MCPFilesystemClient
-    from xml_parser import StreamingXMLParser
+    from utils.terminal_utils import Colors
+    from mcp.mcp_filesystem_client import MCPFilesystemClient
+    from utils.xml_parser import StreamingXMLParser
 except ImportError:
     # Fall back to absolute imports (for when imported from tests)
-    from src.terminal_utils import Colors
-    from src.mcp_filesystem_client import MCPFilesystemClient
-    from src.xml_parser import StreamingXMLParser
+    from src.utils.terminal_utils import Colors
+    from src.mcp.mcp_filesystem_client import MCPFilesystemClient
+    from src.utils.xml_parser import StreamingXMLParser
 
 
 class MCPCommandHandler:

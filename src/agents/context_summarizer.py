@@ -10,7 +10,11 @@ import json
 import re
 import tiktoken
 from typing import List, Dict, Any, Tuple, Optional
-from terminal_utils import Colors
+
+try:
+    from utils.terminal_utils import Colors
+except ImportError:
+    from src.utils.terminal_utils import Colors
 
 
 class ContextSummarizer:

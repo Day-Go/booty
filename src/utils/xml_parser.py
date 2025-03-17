@@ -3,9 +3,9 @@
 import re
 
 try:
-    from terminal_utils import Colors
+    from utils.terminal_utils import Colors
 except ImportError:
-    from src.terminal_utils import Colors
+    from src.utils.terminal_utils import Colors
 
 
 class StreamingXMLParser:

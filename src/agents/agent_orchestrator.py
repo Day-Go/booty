@@ -4,11 +4,18 @@ from typing import Dict, List, Any, Optional, Union, Tuple
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor
 
-from terminal_utils import Colors
-from task_planner import TaskPlanner
-from context_manager import ContextManager
-from transient_agent import TransientAgent
-from ollama_agent import OllamaAgent
+try:
+    from utils.terminal_utils import Colors
+    from agents.task_planner import TaskPlanner
+    from utils.context_manager import ContextManager
+    from agents.transient_agent import TransientAgent
+    from agents.ollama_agent import OllamaAgent
+except ImportError:
+    from src.utils.terminal_utils import Colors
+    from src.agents.task_planner import TaskPlanner
+    from src.utils.context_manager import ContextManager
+    from src.agents.transient_agent import TransientAgent
+    from src.agents.ollama_agent import OllamaAgent
 
 
 class AgentOrchestrator:

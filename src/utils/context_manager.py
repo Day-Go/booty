@@ -3,7 +3,10 @@
 from typing import Dict, List, Any, Tuple
 import re
 
-from terminal_utils import Colors
+try:
+    from utils.terminal_utils import Colors
+except ImportError:
+    from src.utils.terminal_utils import Colors
 
 
 class ContextManager:

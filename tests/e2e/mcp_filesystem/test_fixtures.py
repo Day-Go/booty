@@ -20,9 +20,9 @@ from unittest.mock import patch
 # Add project root to path to ensure imports work
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
-from src.mcp_filesystem_client import MCPFilesystemClient
-from src.mcp_command_handler import MCPCommandHandler
-from src.xml_parser import StreamingXMLParser
+from src.mcp.mcp_filesystem_client import MCPFilesystemClient
+from src.mcp.mcp_command_handler import MCPCommandHandler
+from src.utils.xml_parser import StreamingXMLParser
 
 from tests.e2e.mcp_filesystem.test_helpers import mock_filesystem_request
 

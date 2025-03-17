@@ -79,11 +79,13 @@ class ChangeDirectoryRequest(BaseModel):
 
 
 class ChangeDirectoryResponse(BaseModel):
-    success: bool = Field(..., description="Whether the directory change was successful")
+    success: bool = Field(
+        ..., description="Whether the directory change was successful"
+    )
     current_dir: str = Field(..., description="New current working directory")
     previous_dir: str = Field(..., description="Previous working directory")
-    
-    
+
+
 class WorkingDirectoryResponse(BaseModel):
     current_dir: str = Field(..., description="Current working directory")
     script_dir: str = Field(..., description="Directory containing the server script")
@@ -108,29 +110,32 @@ CURRENT_WORKING_DIRECTORY = os.getcwd()
 # Store the original script directory for reference
 SCRIPT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
+
 # Helper to validate path is within allowed directories
 def validate_path(path: str) -> bool:
     path = os.path.abspath(path)
     return True
     # return any(path.startswith(allowed_dir) for allowed_dir in ALLOWED_DIRECTORIES)
 
+
 def get_current_working_directory() -> str:
     """
     Get the current working directory.
-    
+
     Returns:
         The current working directory path
     """
     global CURRENT_WORKING_DIRECTORY
     return CURRENT_WORKING_DIRECTORY
 
+
 def set_current_working_directory(path: str) -> str:
     """
     Update the stored current working directory.
-    
+
     Args:
         path: New directory path
-        
+
     Returns:
         The new current working directory path
     """
@@ -149,32 +154,32 @@ async def read_file(request: FileReadRequest):
     """
     if not validate_path(request.path):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Access to this path is not allowed due to security restrictions"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this path is not allowed due to security restrictions",
         )
 
     try:
         path = Path(request.path)
-        
+
         # Check if path exists
         if not path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"File not found: {request.path}"
+                detail=f"File not found: {request.path}",
             )
 
         # Check if path is a file
         if not path.is_file():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Path exists but is not a file: {request.path}"
+                detail=f"Path exists but is not a file: {request.path}",
             )
 
         # Check if file is readable
         if not os.access(path, os.R_OK):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot read file {request.path}"
+                detail=f"Permission denied: Cannot read file {request.path}",
             )
 
         # Try to read the file
@@ -185,12 +190,12 @@ async def read_file(request: FileReadRequest):
         except UnicodeDecodeError:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"File contains non-text content and cannot be read as text: {request.path}"
+                detail=f"File contains non-text content and cannot be read as text: {request.path}",
             )
         except PermissionError:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot access file {request.path}"
+                detail=f"Permission denied: Cannot access file {request.path}",
             )
     except HTTPException:
         # Re-raise HTTP exceptions without modification
@@ -199,8 +204,7 @@ async def read_file(request: FileReadRequest):
         # Convert other exceptions to proper HTTP errors with context
         error_message = f"Error reading file: {str(e)}"
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=error_message
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_message
         )
 
 
@@ -213,13 +217,13 @@ async def write_file(request: FileWriteRequest):
     """
     if not validate_path(request.path):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Access to this path is not allowed due to security restrictions"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this path is not allowed due to security restrictions",
         )
 
     try:
         path = Path(request.path)
-        
+
         # Ensure parent directory exists
         parent_dir = path.parent
         if not parent_dir.exists():
@@ -228,33 +232,33 @@ async def write_file(request: FileWriteRequest):
             except PermissionError:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Permission denied: Cannot create directory {parent_dir}"
+                    detail=f"Permission denied: Cannot create directory {parent_dir}",
                 )
             except OSError as e:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to create parent directory: {str(e)}"
+                    detail=f"Failed to create parent directory: {str(e)}",
                 )
 
         # Check if the path exists and is not a directory
         if path.exists() and path.is_dir():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot write to {request.path}: Path exists and is a directory"
+                detail=f"Cannot write to {request.path}: Path exists and is a directory",
             )
 
         # Check if parent directory is writable
         if not os.access(parent_dir, os.W_OK):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot write to directory {parent_dir}"
+                detail=f"Permission denied: Cannot write to directory {parent_dir}",
             )
 
         # If file exists, check if it's writable
         if path.exists() and not os.access(path, os.W_OK):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot write to file {request.path}"
+                detail=f"Permission denied: Cannot write to file {request.path}",
             )
 
         # Try to write to the file
@@ -265,12 +269,12 @@ async def write_file(request: FileWriteRequest):
         except PermissionError:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot write to file {request.path}"
+                detail=f"Permission denied: Cannot write to file {request.path}",
             )
         except OSError as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to write to file: {str(e)}"
+                detail=f"Failed to write to file: {str(e)}",
             )
     except HTTPException:
         # Re-raise HTTP exceptions without modification
@@ -279,8 +283,7 @@ async def write_file(request: FileWriteRequest):
         # Convert other exceptions to proper HTTP errors with context
         error_message = f"Error writing file: {str(e)}"
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=error_message
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_message
         )
 
 
@@ -292,32 +295,32 @@ async def list_directory(request: DirListRequest):
     """
     if not validate_path(request.path):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Access to this path is not allowed due to security restrictions"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this path is not allowed due to security restrictions",
         )
 
     try:
         path = Path(request.path)
-        
+
         # Check if path exists
         if not path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Directory not found: {request.path}"
+                detail=f"Directory not found: {request.path}",
             )
 
         # Check if path is a directory
         if not path.is_dir():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Path exists but is not a directory: {request.path}"
+                detail=f"Path exists but is not a directory: {request.path}",
             )
 
         # Check if directory is readable
         if not os.access(path, os.R_OK):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot read directory {request.path}"
+                detail=f"Permission denied: Cannot read directory {request.path}",
             )
 
         # Try to list the directory
@@ -329,7 +332,7 @@ async def list_directory(request: DirListRequest):
                     size = os.path.getsize(entry_path) if entry_path.is_file() else None
                 except OSError:
                     size = None  # Fall back if we can't get size for some reason
-                
+
                 entry_info = {
                     "name": entry,
                     "path": str(entry_path),
@@ -341,7 +344,7 @@ async def list_directory(request: DirListRequest):
         except PermissionError:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot access directory {request.path}"
+                detail=f"Permission denied: Cannot access directory {request.path}",
             )
     except HTTPException:
         # Re-raise HTTP exceptions without modification
@@ -350,8 +353,7 @@ async def list_directory(request: DirListRequest):
         # Convert other exceptions to proper HTTP errors with context
         error_message = f"Error listing directory: {str(e)}"
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=error_message
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_message
         )
 
 
@@ -363,13 +365,13 @@ async def create_directory(request: DirCreateRequest):
     """
     if not validate_path(request.path):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Access to this path is not allowed due to security restrictions"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this path is not allowed due to security restrictions",
         )
 
     try:
         path = Path(request.path)
-        
+
         # Check if path already exists
         if path.exists():
             if path.is_dir():
@@ -379,7 +381,7 @@ async def create_directory(request: DirCreateRequest):
                 # Path exists but is not a directory
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot create directory: Path exists and is not a directory: {request.path}"
+                    detail=f"Cannot create directory: Path exists and is not a directory: {request.path}",
                 )
 
         # Check if parent directory is writable
@@ -387,7 +389,7 @@ async def create_directory(request: DirCreateRequest):
         if parent_dir.exists() and not os.access(parent_dir, os.W_OK):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot create directory in {parent_dir}"
+                detail=f"Permission denied: Cannot create directory in {parent_dir}",
             )
 
         # Try to create the directory
@@ -397,12 +399,12 @@ async def create_directory(request: DirCreateRequest):
         except PermissionError:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot create directory {request.path}"
+                detail=f"Permission denied: Cannot create directory {request.path}",
             )
         except OSError as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create directory: {str(e)}"
+                detail=f"Failed to create directory: {str(e)}",
             )
     except HTTPException:
         # Re-raise HTTP exceptions without modification
@@ -411,8 +413,7 @@ async def create_directory(request: DirCreateRequest):
         # Convert other exceptions to proper HTTP errors with context
         error_message = f"Error creating directory: {str(e)}"
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=error_message
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_message
         )
 
 
@@ -424,32 +425,32 @@ async def search_files(request: SearchRequest):
     """
     if not validate_path(request.path):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Access to this path is not allowed due to security restrictions"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this path is not allowed due to security restrictions",
         )
 
     try:
         path = Path(request.path)
-        
+
         # Check if path exists
         if not path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Directory not found: {request.path}"
+                detail=f"Directory not found: {request.path}",
             )
 
         # Check if path is a directory
         if not path.is_dir():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Path exists but is not a directory: {request.path}"
+                detail=f"Path exists but is not a directory: {request.path}",
             )
 
         # Check if directory is readable
         if not os.access(path, os.R_OK):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot read directory {request.path}"
+                detail=f"Permission denied: Cannot read directory {request.path}",
             )
 
         # Try to search for files
@@ -460,7 +461,7 @@ async def search_files(request: SearchRequest):
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error in glob pattern: {str(e)}"
+                detail=f"Error in glob pattern: {str(e)}",
             )
     except HTTPException:
         # Re-raise HTTP exceptions without modification
@@ -469,8 +470,7 @@ async def search_files(request: SearchRequest):
         # Convert other exceptions to proper HTTP errors with context
         error_message = f"Error searching files: {str(e)}"
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=error_message
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_message
         )
 
 
@@ -486,20 +486,19 @@ async def list_allowed_directories():
 async def get_working_directory():
     """
     Get the current working directory and script directory.
-    
+
     Returns:
         Dict with current working directory and script directory
     """
     try:
         return {
             "current_dir": get_current_working_directory(),
-            "script_dir": SCRIPT_DIRECTORY
+            "script_dir": SCRIPT_DIRECTORY,
         }
     except Exception as e:
         error_message = f"Error getting working directory: {str(e)}"
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=error_message
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_message
         )
 
 
@@ -508,54 +507,54 @@ async def change_directory(request: ChangeDirectoryRequest):
     """
     Change the current working directory.
     Returns the new current working directory.
-    
+
     This does not actually change the OS process's working directory,
     but updates the server's tracking of the current directory.
     """
     if not validate_path(request.path):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Access to this path is not allowed due to security restrictions"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this path is not allowed due to security restrictions",
         )
 
     try:
         path = Path(request.path)
-        
+
         # Check if path exists
         if not path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Directory not found: {request.path}"
+                detail=f"Directory not found: {request.path}",
             )
 
         # Check if path is a directory
         if not path.is_dir():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Path exists but is not a directory: {request.path}"
+                detail=f"Path exists but is not a directory: {request.path}",
             )
 
         # Check if directory is accessible
         if not os.access(path, os.X_OK):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot access directory {request.path}"
+                detail=f"Permission denied: Cannot access directory {request.path}",
             )
 
         # Change the tracked directory
         try:
             previous_dir = get_current_working_directory()
             new_dir = set_current_working_directory(str(path))
-            
+
             return {
-                "success": True, 
-                "current_dir": new_dir, 
-                "previous_dir": previous_dir
+                "success": True,
+                "current_dir": new_dir,
+                "previous_dir": previous_dir,
             }
         except PermissionError:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot change to directory {request.path}"
+                detail=f"Permission denied: Cannot change to directory {request.path}",
             )
     except HTTPException:
         # Re-raise HTTP exceptions without modification
@@ -564,8 +563,7 @@ async def change_directory(request: ChangeDirectoryRequest):
         # Convert other exceptions to proper HTTP errors with context
         error_message = f"Error changing directory: {str(e)}"
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=error_message
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_message
         )
 
 
@@ -577,39 +575,39 @@ async def grep_search(request: GrepSearchRequest):
     """
     if not validate_path(request.path):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Access to this path is not allowed due to security restrictions"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this path is not allowed due to security restrictions",
         )
 
     try:
         path = Path(request.path)
-        
+
         # Check if path exists
         if not path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Directory not found: {request.path}"
+                detail=f"Directory not found: {request.path}",
             )
 
         # Check if path is a directory (for recursive search) or a file
         if not (path.is_dir() or path.is_file()):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Path does not exist or is not accessible: {request.path}"
+                detail=f"Path does not exist or is not accessible: {request.path}",
             )
 
         # Check if path is readable
         if not os.access(path, os.R_OK):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: Cannot read from {request.path}"
+                detail=f"Permission denied: Cannot read from {request.path}",
             )
 
         # Validate pattern is not empty
         if not request.pattern.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Search pattern cannot be empty"
+                detail="Search pattern cannot be empty",
             )
 
         # Try to run grep command
@@ -632,14 +630,17 @@ async def grep_search(request: GrepSearchRequest):
                 capture_output=True,
                 text=True,
                 check=False,  # Don't raise exception on non-zero exit (no matches)
+                timeout=30,
             )
 
             # Check for grep errors (excluding "no matches" which is exit code 1)
             if result.returncode > 1:
-                error_msg = result.stderr.strip() if result.stderr else "Unknown grep error"
+                error_msg = (
+                    result.stderr.strip() if result.stderr else "Unknown grep error"
+                )
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Grep command failed: {error_msg}"
+                    detail=f"Grep command failed: {error_msg}",
                 )
 
             # Process results
@@ -657,7 +658,7 @@ async def grep_search(request: GrepSearchRequest):
         except subprocess.SubprocessError as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error executing grep command: {str(e)}"
+                detail=f"Error executing grep command: {str(e)}",
             )
     except HTTPException:
         # Re-raise HTTP exceptions without modification
@@ -666,8 +667,7 @@ async def grep_search(request: GrepSearchRequest):
         # Convert other exceptions to proper HTTP errors with context
         error_message = f"Error searching with grep: {str(e)}"
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=error_message
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_message
         )
 
 

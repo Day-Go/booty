@@ -8,11 +8,18 @@ import requests
 import tiktoken
 from typing import Dict, List, Any, Optional, Union, Tuple
 
-from terminal_utils import Colors
-from mcp_filesystem_client import MCPFilesystemClient
-from xml_parser import StreamingXMLParser
-from mcp_command_handler import MCPCommandHandler
-from context_summarizer import ContextSummarizer, apply_context_summarization
+try:
+    from utils.terminal_utils import Colors
+    from mcp.mcp_filesystem_client import MCPFilesystemClient
+    from utils.xml_parser import StreamingXMLParser
+    from mcp.mcp_command_handler import MCPCommandHandler
+    from agents.context_summarizer import ContextSummarizer, apply_context_summarization
+except ImportError:
+    from src.utils.terminal_utils import Colors
+    from src.mcp.mcp_filesystem_client import MCPFilesystemClient
+    from src.utils.xml_parser import StreamingXMLParser
+    from src.mcp.mcp_command_handler import MCPCommandHandler
+    from src.agents.context_summarizer import ContextSummarizer, apply_context_summarization
 
 
 class OllamaAgent:

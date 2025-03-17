@@ -9,8 +9,13 @@ import logging
 import uvicorn
 import threading
 import time
-from terminal_utils import Colors
-from agent_orchestrator import AgentOrchestrator
+
+try:
+    from utils.terminal_utils import Colors
+    from agents.agent_orchestrator import AgentOrchestrator
+except ImportError:
+    from src.utils.terminal_utils import Colors
+    from src.agents.agent_orchestrator import AgentOrchestrator
 
 
 # Default system prompt for the coding agent
@@ -85,7 +90,7 @@ def start_mcp_filesystem_server():
 
     # Run the server with minimal logging settings
     uvicorn.run(
-        "mcp_filesystem_server:app",
+        "mcp.mcp_filesystem_server:app",
         host="127.0.0.1",
         port=8000,
         log_level="critical",

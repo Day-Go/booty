@@ -4,9 +4,14 @@ from typing import Dict, List, Any, Optional, Union, Tuple
 import re
 import requests
 
-from terminal_utils import Colors
-from mcp_filesystem_client import MCPFilesystemClient
-from mcp_command_handler import MCPCommandHandler
+try:
+    from utils.terminal_utils import Colors
+    from mcp.mcp_filesystem_client import MCPFilesystemClient
+    from mcp.mcp_command_handler import MCPCommandHandler
+except ImportError:
+    from src.utils.terminal_utils import Colors
+    from src.mcp.mcp_filesystem_client import MCPFilesystemClient
+    from src.mcp.mcp_command_handler import MCPCommandHandler
 
 
 class TransientAgent:

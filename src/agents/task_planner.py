@@ -4,7 +4,10 @@ from typing import Dict, List, Any, Tuple, Optional
 import re
 import uuid
 
-from terminal_utils import Colors
+try:
+    from utils.terminal_utils import Colors
+except ImportError:
+    from src.utils.terminal_utils import Colors
 
 
 # TODO: This class is a mess. Hardcoded rules that aren't useful.
