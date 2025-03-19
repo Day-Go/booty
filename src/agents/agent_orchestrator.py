@@ -1,6 +1,6 @@
 """Agent Orchestrator for managing hierarchical agent structure."""
 
-from typing import Dict, List, Any, Optional, Union, Tuple
+from typing import Dict, List, Any
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor
 
@@ -70,8 +70,8 @@ class AgentOrchestrator:
             max_context_tokens=max_context_tokens,
             system_prompt=self.main_agent_prompt,
             agent_id="MAIN_AGENT",
-            summarizer_model="gemma3:12b",
-            summarizer_max_tokens=32000,
+            summarizer_model="gemma3:4b",
+            summarizer_max_tokens=16000,
             enable_context_summarization=True,
             tokenizer_name="cl100k_base",
         )

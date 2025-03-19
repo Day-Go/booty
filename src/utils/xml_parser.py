@@ -1,7 +1,6 @@
 """XML parser for MCP commands using xml.etree.ElementTree."""
 
 import xml.etree.ElementTree as ET
-from io import StringIO
 
 try:
     from utils.terminal_utils import Colors
@@ -16,10 +15,10 @@ class StreamingXMLParser:
         self.buffer = ""
         self.complete_command = ""
         self.in_think_block = False
-        self.debug_mode = debug_mode
         self.in_code_block = False
         self.code_block_lang = None
         self.code_block_content = ""
+        self.debug_mode = debug_mode
 
     def debug_print(self, message):
         """Print debug message if debug mode is enabled"""
@@ -268,4 +267,3 @@ class StreamingXMLParser:
         self.in_code_block = False
         self.code_block_lang = None
         self.code_block_content = ""
-

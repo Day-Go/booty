@@ -88,7 +88,7 @@ if __name__ == "__main__":
 
     # Setup configuration
     print(f"{Colors.BOLD}Setting up agent configuration...{Colors.ENDC}")
-    model = "gemma3:27b"
+    model = "gemma3:12b"
     api_base = "http://localhost:11434"  # Ollama API endpoint
     mcp_fs_url = "http://127.0.0.1:8000"  # MCP Filesystem API endpoint
     max_agents = 10

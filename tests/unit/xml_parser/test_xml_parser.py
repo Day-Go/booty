@@ -1,7 +1,6 @@
 """Unit tests for the StreamingXMLParser class."""
 
-import pytest
-from tests.mocks.simplified_parser import StreamingXMLParser
+from src.utils.xml_parser import StreamingXMLParser
 
 
 class TestStreamingXMLParser:
@@ -13,33 +12,35 @@ class TestStreamingXMLParser:
 
     def test_initialization(self):
         """Test the parser initializes with correct default state."""
-        assert self.parser.in_mcp_block is False
         assert self.parser.buffer == ""
-        assert self.parser.xml_stack == []
         assert self.parser.complete_command == ""
         assert self.parser.in_think_block is False
-        assert self.parser.partial_tag_buffer == ""
+        assert self.parser.in_code_block is False
+        assert self.parser.code_block_lang is None
+        assert self.parser.code_block_content == ""
+        assert self.parser.debug_mode is False
 
     def test_reset(self):
         """Test the reset method clears parser state."""
         # Set up non-default state
-        self.parser.in_mcp_block = True
-        self.parser.buffer = "some buffer content"
-        self.parser.xml_stack = ["tag1", "tag2"]
-        self.parser.complete_command = "completed command"
-        self.parser.in_think_block = True
-        self.parser.partial_tag_buffer = "partial tag"
+
+        self.parser.buffer = "Theres content in the buffer"
+        self.parser.complete_command = "get_working_dir"
+        self.parser.in_think_block = False
+        self.parser.in_code_block = True
+        self.parser.code_block_lang = "Python"
+        self.parser.code_block_content = "def main(): print('hello, world!')"
 
         # Reset the parser
         self.parser.reset()
 
         # Verify state was reset
-        assert self.parser.in_mcp_block is False
         assert self.parser.buffer == ""
-        assert self.parser.xml_stack == []
         assert self.parser.complete_command == ""
         assert self.parser.in_think_block is False
-        assert self.parser.partial_tag_buffer == ""
+        assert self.parser.in_code_block is False
+        assert self.parser.code_block_lang is None
+        assert self.parser.code_block_content == ""
 
     def test_simple_mcp_command_detection(self):
         """Test detection of a simple MCP command."""
@@ -80,11 +81,11 @@ class TestStreamingXMLParser:
         """Test detection of a command that comes in multiple chunks."""
         # Feed first part
         self.parser.feed("<mcp:filesystem><read ")
-        assert self.parser.in_mcp_block is True
-        assert (
-            len(self.parser.xml_stack) == 2
-        )  # Should have mcp:filesystem and read tags
-
+        
+        # The parser now uses a buffer approach rather than an XML stack
+        # Since no complete command is found yet, buffer should contain the partial command
+        assert "<mcp:filesystem><read " in self.parser.buffer
+        
         # Feed second part
         self.parser.feed("path='/some/file.txt' /></mcp:filesystem>")
 
@@ -116,23 +117,28 @@ class TestStreamingXMLParser:
     def test_multiple_commands(self):
         """Test handling of multiple consecutive commands."""
         # Feed first command
-        command1 = "<mcp:filesystem><pwd /></mcp:filesystem>"
+        command1 = "<mcp:filesystem><get_working_directory /></mcp:filesystem>"
         command2 = "<mcp:filesystem><list path='/' /></mcp:filesystem>"
 
-        # Feed both commands
-        self.parser.feed(command1 + " " + command2)
-
+        # Feed first command
+        first_result = self.parser.feed(command1)
+        assert first_result is True
+        
         # Get first command
         first_command = self.parser.get_command()
         assert first_command == command1
-
+        
+        # Feed second command separately
+        second_result = self.parser.feed(command2)
+        assert second_result is True
+        
         # Get second command
         second_command = self.parser.get_command()
         assert second_command == command2
 
     def test_self_closing_tags(self):
         """Test proper handling of self-closing tags."""
-        command = "<mcp:filesystem><read path='/file.txt' /><pwd /></mcp:filesystem>"
+        command = "<mcp:filesystem><read path='/file.txt' /><get_working_directory /></mcp:filesystem>"
 
         # Feed the command character by character
         self.parser.feed(command)
@@ -158,7 +164,7 @@ class TestStreamingXMLParser:
     def test_multiple_commands_in_buffer(self):
         """Test handling of multiple commands in the buffer."""
         content = (
-            "<mcp:filesystem><pwd /></mcp:filesystem> "
+            "<mcp:filesystem><get_working_directory /></mcp:filesystem> "
             "Some text between commands "
             "<mcp:filesystem><list path='/' /></mcp:filesystem>"
         )
@@ -168,26 +174,37 @@ class TestStreamingXMLParser:
 
         # First command should be detected
         first_command = self.parser.get_command()
-        assert "<pwd />" in first_command
-
-        # Second command should also be detected
+        assert "<get_working_directory />" in first_command
+        
+        # The current implementation processes one command at a time
+        # We need to manually check for additional commands in the buffer
+        has_more = self.parser.check_for_mcp_commands()
+        assert has_more is True
+        
+        # Second command should now be detected
         second_command = self.parser.get_command()
         assert "<list path='/' />" in second_command
 
     def test_malformed_xml_handling(self):
         """Test how the parser handles malformed XML."""
-        # XML with unclosed tag
+        # XML with unclosed tag - missing the closing read tag
         content = "<mcp:filesystem><read path='/file.txt'></mcp:filesystem>"
 
-        # Feed the content token by token
+        # We first feed the content to extract it from the buffer
         self.parser.feed(content)
-
-        # The parser should have detected a command but XML stack may not be empty
+        
+        # In the current implementation, the malformed XML is extracted
+        # but then fails validation in parse_xml
         command = self.parser.get_command()
+        
+        # The command should be extracted
         assert command == content
-
-        # Check parser state is reset
-        assert self.parser.in_mcp_block is False
+        
+        # Validate directly using parse_xml
+        is_valid = self.parser.parse_xml(content)
+        
+        # The XML should be invalid
+        assert is_valid is False
 
     def test_attributes_with_quotes(self):
         """Test handling of attributes with quotes."""
@@ -223,4 +240,3 @@ class TestStreamingXMLParser:
         # The parser should detect the command inside the code block
         command = self.parser.get_command()
         assert "<list path='/' />" in command
-
